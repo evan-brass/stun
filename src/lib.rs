@@ -1,7 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-mod stun;
 mod attr;
+mod stun;
 pub use attr::AttrIter as _;
 
 const MAGIC_COOKIE: u32 = 0x2112A442;
@@ -30,7 +30,7 @@ pub enum Method {
 }
 
 pub struct Stun<B> {
-	pub buffer: B
+	pub buffer: B,
 }
 pub enum Error {
 	NotStun,
@@ -38,7 +38,7 @@ pub enum Error {
 }
 pub struct Prefix<'i> {
 	first_four: [u8; 4],
-	prefix: &'i [u8]
+	prefix: &'i [u8],
 }
 
 pub trait Attr<'i, const T: u16>: Sized {

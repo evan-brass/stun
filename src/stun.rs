@@ -1,5 +1,5 @@
-use core::borrow::{Borrow, BorrowMut};
 use crate::*;
+use core::borrow::{Borrow, BorrowMut};
 
 impl<B: Borrow<[u8]>> Stun<B> {
 	pub fn decode(&self, len: usize) -> Result<(), Error> {
@@ -7,21 +7,35 @@ impl<B: Borrow<[u8]>> Stun<B> {
 		assert!(self.buffer.borrow().len() >= len);
 
 		// Check first 2 bits of the typ
-		if len < 2 { return Err(Error::TooShort(2)) }
-		if self.typ() >> 14 != 0 { return Err(Error::NotStun) }
+		if len < 2 {
+			return Err(Error::TooShort(2));
+		}
+		if self.typ() >> 14 != 0 {
+			return Err(Error::NotStun);
+		}
 
 		// Check the length
-		if len < 4 { return Err(Error::TooShort(4)) }
+		if len < 4 {
+			return Err(Error::TooShort(4));
+		}
 		let length = self.length();
-		if length % 4 != 0 { return Err(Error::NotStun) }
+		if length % 4 != 0 {
+			return Err(Error::NotStun);
+		}
 
 		// Check the cookie
-		if len < 8 { return Err(Error::TooShort(8)) }
-		if self.cookie() != MAGIC_COOKIE { return Err(Error::NotStun) }
+		if len < 8 {
+			return Err(Error::TooShort(8));
+		}
+		if self.cookie() != MAGIC_COOKIE {
+			return Err(Error::NotStun);
+		}
 
 		// Check if the buffer contains enough data for this size STUN message
 		let exp_len = 20 + self.length() as usize;
-		if len < exp_len { return Err(Error::TooShort(exp_len)) }
+		if len < exp_len {
+			return Err(Error::TooShort(exp_len));
+		}
 
 		Ok(())
 	}
@@ -34,7 +48,7 @@ impl<B: Borrow<[u8]>> Stun<B> {
 			0x0010 => Class::Indication,
 			0x0100 => Class::Success,
 			0x0110 => Class::Error,
-			_ => unreachable!()
+			_ => unreachable!(),
 		}
 	}
 	#[doc(hidden)]
@@ -52,7 +66,7 @@ impl<B: Borrow<[u8]>> Stun<B> {
 			0x008 => Method::CreatePermission,
 			0x009 => Method::ChannelBind,
 
-			_ => Method::Unknown
+			_ => Method::Unknown,
 		}
 	}
 	pub fn length(&self) -> u16 {
@@ -73,18 +87,20 @@ impl<B: BorrowMut<[u8]>> Stun<B> {
 	}
 	pub fn set_class(&mut self, class: Class) {
 		let typ = self.typ();
-		self.set_typ(typ & !0x0110 | match class {
-			Class::Request => 0x0000,
-			Class::Indication => 0x0010,
-			Class::Success => 0x0100,
-			Class::Error => 0x0110
-		});
+		self.set_typ(
+			typ & !0x0110
+				| match class {
+					Class::Request => 0x0000,
+					Class::Indication => 0x0010,
+					Class::Success => 0x0100,
+					Class::Error => 0x0110,
+				},
+		);
 	}
 	#[doc(hidden)]
 	pub fn set_raw_method(&mut self, method: u16) {
 		let class = self.typ() & 0x0110;
-		self.set_typ(class | (method & 0x1F80) << 2 | (method & 0x0070) << 1
-		| (method & 0x000F));
+		self.set_typ(class | (method & 0x1F80) << 2 | (method & 0x0070) << 1 | (method & 0x000F));
 	}
 	pub fn set_method(&mut self, method: Method) {
 		self.set_raw_method(method as u16);
@@ -114,14 +130,20 @@ impl<'i> Iterator for Attrs<'i> {
 	type Item = (Prefix<'i>, u16, &'i [u8]);
 	fn next(&mut self) -> Option<Self::Item> {
 		// Check the offset against the STUN length
-		if self.offset >= self.length { return None }
+		if self.offset >= self.length {
+			return None;
+		}
 		let remaining = self.length - self.offset;
-		if remaining < 4 { return None }
+		if remaining < 4 {
+			return None;
+		}
 
 		// Check the offset against the buffer's length
 		let i = 16 + self.offset as usize;
-		if self.rest.len() < i + 4 { return None }
-		
+		if self.rest.len() < i + 4 {
+			return None;
+		}
+
 		// Read the attribute's header
 		let attr_typ = u16::from_be_bytes(self.rest[i..][..2].try_into().unwrap());
 		let attr_len = u16::from_be_bytes(self.rest[i + 2..][..2].try_into().unwrap());
@@ -133,12 +155,18 @@ impl<'i> Iterator for Attrs<'i> {
 		let i = i + 4;
 
 		// Check the attribute's length against the STUN header
-		if remaining < attr_len { return None }
-		if remaining - attr_len < attr_pad { return None }
+		if remaining < attr_len {
+			return None;
+		}
+		if remaining - attr_len < attr_pad {
+			return None;
+		}
 
 		// Check the attribute's length against the buffer's length
 		let end = i + attr_len as usize;
-		if self.rest.len() < end { return None }
+		if self.rest.len() < end {
+			return None;
+		}
 
 		// Everything's good, construct the attribute
 		let length_at = self.offset + 4 + attr_len + attr_pad;
@@ -158,11 +186,24 @@ impl<'i, B: Borrow<[u8]>> IntoIterator for &'i Stun<B> {
 	type Item = (Prefix<'i>, u16, &'i [u8]);
 	fn into_iter(self) -> Self::IntoIter {
 		let buffer = self.buffer.borrow();
-		let typ = if buffer.len() < 2 { [0, 0] } else { buffer[0..2].try_into().unwrap() };
-		let length = if buffer.len() < 4 { 0 } else { u16::from_be_bytes(buffer[2..4].try_into().unwrap()) };
+		let typ = if buffer.len() < 2 {
+			[0, 0]
+		} else {
+			buffer[0..2].try_into().unwrap()
+		};
+		let length = if buffer.len() < 4 {
+			0
+		} else {
+			u16::from_be_bytes(buffer[2..4].try_into().unwrap())
+		};
 		let rest = if buffer.len() < 4 { &[] } else { &buffer[4..] };
 
-		Self::IntoIter { typ, length, rest, offset: 0 }
+		Self::IntoIter {
+			typ,
+			length,
+			rest,
+			offset: 0,
+		}
 	}
 }
 impl<B: Borrow<[u8]>> core::fmt::Debug for Stun<B> {
