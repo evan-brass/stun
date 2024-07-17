@@ -63,7 +63,7 @@ impl<B: Borrow<[u8]>> Stun<B> {
 		u32::from_be_bytes(self.buffer.borrow()[4..8].try_into().unwrap())
 	}
 	pub fn txid(&self) -> &[u8; 12] {
-		self.buffer.borrow()[8..][..20].try_into().unwrap()
+		self.buffer.borrow()[8..20].try_into().unwrap()
 	}
 }
 
@@ -103,6 +103,7 @@ impl<B: BorrowMut<[u8]>> Stun<B> {
 	}
 }
 
+#[derive(Clone)]
 pub struct Attrs<'i> {
 	typ: [u8; 2],
 	length: u16,
@@ -123,7 +124,7 @@ impl<'i> Iterator for Attrs<'i> {
 		
 		// Read the attribute's header
 		let attr_typ = u16::from_be_bytes(self.rest[i..][..2].try_into().unwrap());
-		let attr_len = u16::from_be_bytes(self.rest[i + 2..][2..].try_into().unwrap());
+		let attr_len = u16::from_be_bytes(self.rest[i + 2..][..2].try_into().unwrap());
 		let attr_pad = (4 - attr_len % 4) % 4;
 
 		// Consume the attribute header:
@@ -145,7 +146,7 @@ impl<'i> Iterator for Attrs<'i> {
 		first_four[..2].copy_from_slice(&self.typ);
 		first_four[2..].copy_from_slice(&length_at.to_be_bytes());
 
-		let value = &self.rest[i..][..end];
+		let value = &self.rest[i..end];
 
 		self.offset = length_at;
 
@@ -162,5 +163,15 @@ impl<'i, B: Borrow<[u8]>> IntoIterator for &'i Stun<B> {
 		let rest = if buffer.len() < 4 { &[] } else { &buffer[4..] };
 
 		Self::IntoIter { typ, length, rest, offset: 0 }
+	}
+}
+impl<B: Borrow<[u8]>> core::fmt::Debug for Stun<B> {
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+		f.debug_struct("Stun")
+			.field("class", &self.class())
+			.field("method", &self.method())
+			.field("txid", self.txid())
+			.field("length", &self.length())
+			.finish()
 	}
 }

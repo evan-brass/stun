@@ -1,6 +1,8 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 mod stun;
+mod attr;
+pub use attr::AttrIter as _;
 
 const MAGIC_COOKIE: u32 = 0x2112A442;
 
