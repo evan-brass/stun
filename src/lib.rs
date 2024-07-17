@@ -1,8 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-mod attr;
+pub mod attr;
 mod stun;
-pub use attr::AttrIter as _;
 
 const MAGIC_COOKIE: u32 = 0x2112A442;
 
@@ -32,29 +31,8 @@ pub enum Method {
 pub struct Stun<B> {
 	pub buffer: B,
 }
+
 pub enum Error {
 	NotStun,
 	TooShort(usize),
-}
-pub struct Prefix<'i> {
-	first_four: [u8; 4],
-	prefix: &'i [u8],
-}
-
-pub trait Attr<'i, const T: u16>: Sized {
-	type Error;
-
-	fn decode(prefix: Prefix<'i>, value: &'i [u8]) -> Result<Self, Self::Error>;
-	fn length(&self) -> u16;
-	fn encode(&self, prefix: Prefix, value: &mut [u8]);
-
-	/// Some attributes must preced other attributes
-	fn must_precede(typ: u16) -> bool {
-		match typ {
-			0x0006 /* MESSAGE-INTEGRITY */ |
-			0x001C /* MESSAGE-INTEGRITY-SHA256 */ |
-			0x8028 /* FINGERPRINT */ => true,
-			_ => false
-		}
-	}
 }
