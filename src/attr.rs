@@ -1,5 +1,6 @@
-mod parse;
+pub mod parse;
 mod attrs;
+mod str;
 
 pub trait Attr<'i, const T: u16>: Sized {
 	type Error;
@@ -11,9 +12,9 @@ pub trait Attr<'i, const T: u16>: Sized {
 	/// Some attributes must preced other attributes
 	fn must_precede(typ: u16) -> bool {
 		match typ {
-			0x0006 /* MESSAGE-INTEGRITY */ |
-			0x001C /* MESSAGE-INTEGRITY-SHA256 */ |
-			0x8028 /* FINGERPRINT */ => true,
+			MESSAGE_INTEGRITY /* MESSAGE-INTEGRITY */ |
+			MESSAGE_INTEGRITY_SHA256 /* MESSAGE-INTEGRITY-SHA256 */ |
+			FINGERPRINT /* FINGERPRINT */ => true,
 			_ => false
 		}
 	}

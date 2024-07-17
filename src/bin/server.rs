@@ -1,5 +1,7 @@
 use std::net::{SocketAddr, UdpSocket};
 
+use stun::attr::{self, parse::AttrIter as _};
+
 fn main() -> Result<std::convert::Infallible, std::io::Error> {
 	let sock = UdpSocket::bind("[::]:3478")?;
 
@@ -12,9 +14,14 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 
 		let sender = SocketAddr::new(sender.ip().to_canonical(), sender.port());
 
+		let mut username = None;
+
 		println!("{sender} {stun:?}");
-		for (_, typ, value) in &stun {
-			println!(" - {typ}: {value:?}");
-		}
+		let unknown = stun.into_iter()
+			.parse::<{attr::USERNAME}, &str>(&mut username)
+			.collect_unknown::<4>();
+
+		println!("Username: {username:?}");
+		println!("Unknown Attributes: {unknown:?}");
 	}
 }
