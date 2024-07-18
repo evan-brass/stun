@@ -72,6 +72,9 @@ impl<B: Borrow<[u8]>> Stun<B> {
 	pub fn length(&self) -> u16 {
 		u16::from_be_bytes(self.buffer.borrow()[2..4].try_into().unwrap())
 	}
+	pub fn len(&self) -> usize {
+		20 + self.length() as usize
+	}
 	#[doc(hidden)]
 	pub fn cookie(&self) -> u32 {
 		u32::from_be_bytes(self.buffer.borrow()[4..8].try_into().unwrap())

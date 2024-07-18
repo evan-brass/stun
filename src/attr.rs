@@ -2,6 +2,7 @@ pub mod parse;
 mod attrs;
 mod str;
 mod sockaddr;
+pub mod integrity;
 
 pub trait Attr<'i, const T: u16>: Sized {
 	type Error;
@@ -19,6 +20,7 @@ pub trait Attr<'i, const T: u16>: Sized {
 	}
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct Prefix<'i> {
 	first_four: [u8; 4],
 	prefix: &'i [u8],
