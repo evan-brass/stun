@@ -1,7 +1,8 @@
 use std::net::{SocketAddr, UdpSocket};
 
+use stun::attr::fingerprint::Fingerprint;
 use stun::attr::integrity::IntegritySha1;
-use stun::attr::{MESSAGE_INTEGRITY, USERNAME, REALM, NONCE, PRIORITY, ICE_CONTROLLED, ICE_CONTROLLING};
+use stun::attr::{ICE_CONTROLLED, ICE_CONTROLLING, MESSAGE_INTEGRITY, NONCE, PRIORITY, REALM, USERNAME, FINGERPRINT};
 use stun::{attr::parse::AttrIter as _, Class, Method};
 
 fn main() -> Result<std::convert::Infallible, std::io::Error> {
@@ -23,6 +24,7 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 		let mut priority = None;
 		let mut ice_controlled = None;
 		let mut ice_controlling = None;
+		let mut fingerprint = None;
 
 		let unknown = stun
 			.into_iter()
@@ -33,16 +35,12 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 			.parse::<PRIORITY, u32>(&mut priority)
 			.parse::<ICE_CONTROLLED, u64>(&mut ice_controlled)
 			.parse::<ICE_CONTROLLING, u64>(&mut ice_controlling)
+			.parse::<FINGERPRINT, Fingerprint>(&mut fingerprint)
 			.collect_unknown::<4>();
 
 		println!("{sender} {stun:?} {unknown:?}");
 		println!("username: {username:?}");
-		println!(
-			"integrity: {integrity:?} - {}",
-			integrity.is_some_and(
-				|r| r.is_ok_and(|mut i| i.verify("the/ice/password/constant".as_bytes()))
-			)
-		);
+		println!("fingerprint: {}", fingerprint.is_some_and(|v| v.is_ok()));
 
 		if let Some(_unknown) = unknown {
 			// Notify the peer which attributes we didn't understand.

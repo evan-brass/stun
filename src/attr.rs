@@ -4,6 +4,7 @@ pub mod parse;
 mod sockaddr;
 mod str;
 mod num;
+pub mod fingerprint;
 
 pub trait Attr<'i, const T: u16>: Sized {
 	type Error;
