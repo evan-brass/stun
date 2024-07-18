@@ -1,7 +1,7 @@
 use std::net::{SocketAddr, UdpSocket};
 
 use stun::attr::integrity::IntegritySha1;
-use stun::attr::{MESSAGE_INTEGRITY, USERNAME};
+use stun::attr::{MESSAGE_INTEGRITY, USERNAME, REALM, NONCE, PRIORITY, ICE_CONTROLLED, ICE_CONTROLLING};
 use stun::{attr::parse::AttrIter as _, Class, Method};
 
 fn main() -> Result<std::convert::Infallible, std::io::Error> {
@@ -14,15 +14,25 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 			continue;
 		}
 
-		let sender = SocketAddr::new(sender.ip().to_canonical(), sender.port());
+		let _mapped = SocketAddr::new(sender.ip().to_canonical(), sender.port());
 
 		let mut username = None;
 		let mut integrity = None;
+		let mut realm = None;
+		let mut nonce = None;
+		let mut priority = None;
+		let mut ice_controlled = None;
+		let mut ice_controlling = None;
 
 		let unknown = stun
 			.into_iter()
 			.parse::<USERNAME, &str>(&mut username)
 			.parse::<MESSAGE_INTEGRITY, IntegritySha1>(&mut integrity)
+			.parse::<REALM, &str>(&mut realm)
+			.parse::<NONCE, &str>(&mut nonce)
+			.parse::<PRIORITY, u32>(&mut priority)
+			.parse::<ICE_CONTROLLED, u64>(&mut ice_controlled)
+			.parse::<ICE_CONTROLLING, u64>(&mut ice_controlling)
 			.collect_unknown::<4>();
 
 		println!("{sender} {stun:?} {unknown:?}");

@@ -3,6 +3,7 @@ pub mod integrity;
 pub mod parse;
 mod sockaddr;
 mod str;
+mod num;
 
 pub trait Attr<'i, const T: u16>: Sized {
 	type Error;
