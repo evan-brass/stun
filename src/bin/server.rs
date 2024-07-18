@@ -2,7 +2,7 @@ use std::net::{SocketAddr, UdpSocket};
 
 use stun::attr::fingerprint::Fingerprint;
 use stun::attr::integrity::IntegritySha1;
-use stun::attr::{ICE_CONTROLLED, ICE_CONTROLLING, MESSAGE_INTEGRITY, NONCE, PRIORITY, REALM, USERNAME, FINGERPRINT};
+use stun::attr::{ICE_CONTROLLED, ICE_CONTROLLING, MESSAGE_INTEGRITY, NONCE, PRIORITY, REALM, USERNAME, FINGERPRINT, USE_CANDIDATE, DATA};
 use stun::{attr::parse::AttrIter as _, Class, Method};
 
 fn main() -> Result<std::convert::Infallible, std::io::Error> {
@@ -25,6 +25,8 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 		let mut ice_controlled = None;
 		let mut ice_controlling = None;
 		let mut fingerprint = None;
+		let mut use_candidate = None;
+		let mut data = None;
 
 		let unknown = stun
 			.into_iter()
@@ -36,6 +38,8 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 			.parse::<ICE_CONTROLLED, u64>(&mut ice_controlled)
 			.parse::<ICE_CONTROLLING, u64>(&mut ice_controlling)
 			.parse::<FINGERPRINT, Fingerprint>(&mut fingerprint)
+			.parse::<USE_CANDIDATE, ()>(&mut use_candidate)
+			.parse::<DATA, &[u8]>(&mut data)
 			.collect_unknown::<4>();
 
 		println!("{sender} {stun:?} {unknown:?}");

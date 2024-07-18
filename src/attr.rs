@@ -6,6 +6,8 @@ mod str;
 mod num;
 pub mod fingerprint;
 mod error;
+mod slice;
+mod empty;
 
 pub trait Attr<'i, const T: u16>: Sized {
 	type Error;
