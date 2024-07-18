@@ -1,8 +1,8 @@
-pub mod parse;
 mod attrs;
-mod str;
-mod sockaddr;
 pub mod integrity;
+pub mod parse;
+mod sockaddr;
+mod str;
 
 pub trait Attr<'i, const T: u16>: Sized {
 	type Error;
@@ -15,7 +15,7 @@ pub trait Attr<'i, const T: u16>: Sized {
 	fn must_precede(typ: u16) -> bool {
 		match typ {
 			MESSAGE_INTEGRITY | MESSAGE_INTEGRITY_SHA256 | FINGERPRINT => true,
-			_ => false
+			_ => false,
 		}
 	}
 }

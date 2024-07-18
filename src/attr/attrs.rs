@@ -1,5 +1,5 @@
-use core::borrow::Borrow;
 use crate::Stun;
+use core::borrow::Borrow;
 
 pub struct Attrs<'i> {
 	typ: [u8; 2],

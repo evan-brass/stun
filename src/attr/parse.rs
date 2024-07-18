@@ -27,12 +27,19 @@ pub trait AttrIter<'i>: Iterator<Item = (Prefix<'i>, u16, &'i [u8])> + Sized {
 		for (_, typ, _) in self {
 			if comprehension_required(typ) {
 				for d in ret.iter_mut() {
-					if *d == typ { break }
-					if *d == 0 { *d = typ; break }
+					if *d == typ {
+						break;
+					}
+					if *d == 0 {
+						*d = typ;
+						break;
+					}
 				}
 			}
 		}
-		if ret.iter().all(|t| *t == 0) { return None }
+		if ret.iter().all(|t| *t == 0) {
+			return None;
+		}
 		Some(ret)
 	}
 }

@@ -1,8 +1,8 @@
 use std::net::{SocketAddr, UdpSocket};
 
 use stun::attr::integrity::IntegritySha1;
+use stun::attr::{MESSAGE_INTEGRITY, USERNAME};
 use stun::{attr::parse::AttrIter as _, Class, Method};
-use stun::attr::{USERNAME, MESSAGE_INTEGRITY};
 
 fn main() -> Result<std::convert::Infallible, std::io::Error> {
 	let sock = UdpSocket::bind("[::]:3478")?;
@@ -19,14 +19,20 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 		let mut username = None;
 		let mut integrity = None;
 
-		let unknown = stun.into_iter()
+		let unknown = stun
+			.into_iter()
 			.parse::<USERNAME, &str>(&mut username)
 			.parse::<MESSAGE_INTEGRITY, IntegritySha1>(&mut integrity)
 			.collect_unknown::<4>();
 
 		println!("{sender} {stun:?} {unknown:?}");
 		println!("username: {username:?}");
-		println!("integrity: {integrity:?} - {}", integrity.is_some_and(|r| r.is_ok_and(|mut i| i.verify("the/ice/password/constant".as_bytes()))));
+		println!(
+			"integrity: {integrity:?} - {}",
+			integrity.is_some_and(
+				|r| r.is_ok_and(|mut i| i.verify("the/ice/password/constant".as_bytes()))
+			)
+		);
 
 		if let Some(_unknown) = unknown {
 			// Notify the peer which attributes we didn't understand.
@@ -40,7 +46,7 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 					stun.set_length(0); // Clear the attributes
 					continue;
 				}
-				_ => continue
+				_ => continue,
 			}
 		}
 		sock.send_to(&stun.buffer[..stun.len()], sender)?;
