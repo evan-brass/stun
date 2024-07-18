@@ -1,12 +1,14 @@
 use super::{Attr, Prefix};
 
+pub fn comprehension_required(typ: u16) -> bool {
+	typ < 0x8000
+}
+
 pub trait AttrIter<'i>: Iterator<Item = (Prefix<'i>, u16, &'i [u8])> + Sized {
 	fn parse<'d, const T: u16, A: Attr<'i, T>>(
 		self,
 		dest: &'d mut Option<Result<A, A::Error>>,
 	) -> impl AttrIter<'i>
-	where
-		Self: Sized,
 	{
 		AttrParser {
 			inner: self,
@@ -58,9 +60,7 @@ impl<'i, 'd, const T: u16, I: Iterator<Item = (Prefix<'i>, u16, &'i [u8])>, A: A
 	fn next(&mut self) -> Option<Self::Item> {
 		let (prefix, typ, value) = self.inner.next()?;
 
-		if !self.stop && A::must_precede(typ) {
-			self.stop = true
-		}
+		if A::must_precede(typ) { self.stop = true }
 
 		if typ == T {
 			if self.dest.is_none() && !self.stop {
@@ -71,8 +71,4 @@ impl<'i, 'd, const T: u16, I: Iterator<Item = (Prefix<'i>, u16, &'i [u8])>, A: A
 			Some((prefix, typ, value))
 		}
 	}
-}
-
-pub fn comprehension_required(typ: u16) -> bool {
-	typ < 0x8000
 }

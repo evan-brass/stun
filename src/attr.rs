@@ -5,6 +5,7 @@ mod sockaddr;
 mod str;
 mod num;
 pub mod fingerprint;
+mod error;
 
 pub trait Attr<'i, const T: u16>: Sized {
 	type Error;
