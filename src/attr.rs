@@ -13,10 +13,7 @@ pub trait Attr<'i, const T: u16>: Sized {
 
 	/// Some attributes must preced other attributes
 	fn must_precede(typ: u16) -> bool {
-		match typ {
-			MESSAGE_INTEGRITY | MESSAGE_INTEGRITY_SHA256 | FINGERPRINT => true,
-			_ => false,
-		}
+		matches!(typ, MESSAGE_INTEGRITY | MESSAGE_INTEGRITY_SHA256 | FINGERPRINT)
 	}
 }
 

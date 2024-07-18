@@ -33,7 +33,7 @@ impl<'i> Attr<'i, MESSAGE_INTEGRITY> for IntegritySha1<'i> {
 			panic!("Expected Integrity::Set variant but found Integrity::Check variant.  Use .verify() first, or provide a key by creating a new Integrity.")
 		};
 		let mut mac =
-			SimpleHmac::<sha1::Sha1>::new_from_slice(*key).expect("Failed to create hmac");
+			SimpleHmac::<sha1::Sha1>::new_from_slice(key).expect("Failed to create hmac");
 		prefix.reduce_over_prefix(|s| mac.update(s));
 		value.copy_from_slice(&mac.finalize().into_bytes());
 	}
@@ -41,10 +41,7 @@ impl<'i> Attr<'i, MESSAGE_INTEGRITY> for IntegritySha1<'i> {
 	// The integrity need only precede the fingerprint attribute
 	// TODO: I didn't understand the spec, does the order or integrity vs integrity-256 matter or not?
 	fn must_precede(typ: u16) -> bool {
-		match typ {
-			FINGERPRINT => true,
-			_ => false,
-		}
+		matches!(typ, FINGERPRINT)
 	}
 }
 
