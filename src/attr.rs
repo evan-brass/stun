@@ -8,6 +8,7 @@ pub mod fingerprint;
 mod error;
 mod slice;
 mod empty;
+mod turn;
 
 pub trait Attr<'i, const T: u16>: Sized {
 	type Error;
@@ -24,8 +25,8 @@ pub trait Attr<'i, const T: u16>: Sized {
 
 #[derive(Debug, Clone, Copy)]
 pub struct Prefix<'i> {
-	first_four: [u8; 4],
-	prefix: &'i [u8],
+	pub(crate) first_four: [u8; 4],
+	pub(crate) prefix: &'i [u8],
 }
 impl Prefix<'_> {
 	pub fn xor_bytes(&self, dest: &mut [u8]) {

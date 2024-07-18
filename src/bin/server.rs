@@ -2,8 +2,11 @@ use std::net::{SocketAddr, UdpSocket};
 
 use stun::attr::fingerprint::Fingerprint;
 use stun::attr::integrity::IntegritySha1;
-use stun::attr::{ICE_CONTROLLED, ICE_CONTROLLING, MESSAGE_INTEGRITY, NONCE, PRIORITY, REALM, USERNAME, FINGERPRINT, USE_CANDIDATE, DATA};
+use stun::attr::{ICE_CONTROLLED, ICE_CONTROLLING, MESSAGE_INTEGRITY, NONCE, PRIORITY, REALM, USERNAME, FINGERPRINT, USE_CANDIDATE, DATA, XOR_MAPPED_ADDRESS};
 use stun::{attr::parse::AttrIter as _, Class, Method};
+
+const LONG_KEY: &[u8] = &[1, 92, 138, 151, 62, 164, 180, 169, 201, 69, 246, 144, 20, 43, 243, 173];
+const SHORT_KEY: &[u8] = "the/ice/password/constant".as_bytes();
 
 fn main() -> Result<std::convert::Infallible, std::io::Error> {
 	let sock = UdpSocket::bind("[::]:3478")?;
@@ -15,7 +18,7 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 			continue;
 		}
 
-		let _mapped = SocketAddr::new(sender.ip().to_canonical(), sender.port());
+		let mapped = SocketAddr::new(sender.ip().to_canonical(), sender.port());
 
 		let mut username = None;
 		let mut integrity = None;
@@ -56,7 +59,7 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 				(Class::Request, Method::Binding) => {
 					stun.set_class(Class::Success);
 					stun.set_length(0); // Clear the attributes
-					continue;
+					let _ = stun.append::<XOR_MAPPED_ADDRESS, _>(&mapped);
 				}
 				_ => continue,
 			}
