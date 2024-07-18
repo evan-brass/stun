@@ -99,6 +99,7 @@ impl<B: BorrowMut<[u8]>> Stun<B> {
 	}
 	#[doc(hidden)]
 	pub fn set_raw_method(&mut self, method: u16) {
+		assert!(method <= 0xFFF);
 		let class = self.typ() & 0x0110;
 		self.set_typ(class | (method & 0x1F80) << 2 | (method & 0x0070) << 1 | (method & 0x000F));
 	}
