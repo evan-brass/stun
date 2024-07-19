@@ -49,11 +49,12 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 		println!("username: {username:?}");
 		println!("fingerprint: {}", fingerprint.is_some_and(|v| v.is_ok()));
 
-		if let Some(_unknown) = unknown {
+		if let Some(unknown) = unknown {
 			// Notify the peer which attributes we didn't understand.
 			// NOTICE: we are reusing the recv buffer for our response, and therefore the method, txid, cookie, etc are already correctly set
 			stun.set_class(Class::Error);
 			stun.set_length(0);
+			let _ = stun.append::<ERROR_CODE, _>(&(420, "Unknown Attributes"));
 		} else {
 			match (stun.class(), stun.method()) {
 				(Class::Request, Method::Binding) => {
