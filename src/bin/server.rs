@@ -55,6 +55,7 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 			stun.set_class(Class::Error);
 			stun.set_length(0);
 			let _ = stun.append::<ERROR_CODE, _>(&(420, "Unknown Attributes"));
+			let _ = stun.append::<UNKNOWN_ATTRIBUTES, _>(&unknown);
 		} else {
 			match (stun.class(), stun.method()) {
 				(Class::Request, Method::Binding) => {
