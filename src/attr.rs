@@ -4,7 +4,7 @@ pub mod parse;
 mod sockaddr;
 mod str;
 mod num;
-pub mod fingerprint;
+mod fingerprint;
 mod error;
 mod slice;
 mod empty;

@@ -1,8 +1,7 @@
 use std::net::{SocketAddr, UdpSocket};
 
-use stun::attr::fingerprint::Fingerprint;
+use stun::attr::*;
 use stun::attr::integrity::IntegritySha1;
-use stun::attr::{ICE_CONTROLLED, ICE_CONTROLLING, MESSAGE_INTEGRITY, NONCE, PRIORITY, REALM, USERNAME, FINGERPRINT, USE_CANDIDATE, DATA, XOR_MAPPED_ADDRESS};
 use stun::{attr::parse::AttrIter as _, Class, Method};
 
 const LONG_KEY: &[u8] = &[1, 92, 138, 151, 62, 164, 180, 169, 201, 69, 246, 144, 20, 43, 243, 173];
@@ -40,14 +39,13 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 			.parse::<PRIORITY, u32>(&mut priority)
 			.parse::<ICE_CONTROLLED, u64>(&mut ice_controlled)
 			.parse::<ICE_CONTROLLING, u64>(&mut ice_controlling)
-			.parse::<FINGERPRINT, Fingerprint>(&mut fingerprint)
+			.parse::<FINGERPRINT, ()>(&mut fingerprint)
 			.parse::<USE_CANDIDATE, ()>(&mut use_candidate)
 			.parse::<DATA, &[u8]>(&mut data)
 			.collect_unknown::<4>();
 
 		println!("{sender} {stun:?} {unknown:?}");
 		println!("username: {username:?}");
-		println!("fingerprint: {}", fingerprint.is_some_and(|v| v.is_ok()));
 
 		if let Some(unknown) = unknown {
 			// Notify the peer which attributes we didn't understand.

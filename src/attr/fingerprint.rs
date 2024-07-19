@@ -3,11 +3,10 @@ use super::{Attr, FINGERPRINT};
 
 const MAGIC: u32 = 0x5354554e;
 
-pub struct Fingerprint;
 pub struct BadFingerprint;
 
 #[cfg(feature = "fingerprint")]
-impl Attr<'_, FINGERPRINT> for Fingerprint {
+impl Attr<'_, FINGERPRINT> for () {
 	type Error = BadFingerprint;
 	fn decode(prefix: super::Prefix, value: &[u8]) -> Result<Self, Self::Error> {
 		let actual = u32::from_be_bytes(value.try_into().map_err(|_| BadFingerprint)?);
@@ -16,7 +15,7 @@ impl Attr<'_, FINGERPRINT> for Fingerprint {
 		prefix.reduce_over_prefix(|s| hasher.update(s));
 		let expected = hasher.finalize() ^ MAGIC;
 
-		(expected == actual).then_some(Self).ok_or(BadFingerprint)
+		(expected == actual).then_some(()).ok_or(BadFingerprint)
 	}
 	fn length(&self) -> u16 {
 		4
