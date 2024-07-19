@@ -3,6 +3,7 @@
 
 pub mod attr;
 mod stun;
+mod error;
 
 const MAGIC_COOKIE: u32 = 0x2112A442;
 
@@ -33,6 +34,7 @@ pub struct Stun<B> {
 	pub buffer: B,
 }
 
+#[derive(Debug)]
 pub enum Error {
 	NotStun,
 	TooShort(usize),
