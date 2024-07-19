@@ -30,7 +30,7 @@ impl<'i> Attr<'i, MESSAGE_INTEGRITY> for IntegritySha1<'i> {
 	fn encode(&self, prefix: Prefix, value: &mut [u8]) {
 		use hmac::{Mac as _, SimpleHmac};
 		let Self::Set { key } = self else {
-			panic!("Expected Integrity::Set variant but found Integrity::Check variant.  Use .verify() first, or provide a key by creating a new Integrity.")
+			panic!("Expected Integrity::Set variant but found Integrity::Check variant.  Use .verify() to convert between the Check/Set variants.")
 		};
 		let mut mac =
 			SimpleHmac::<sha1::Sha1>::new_from_slice(key).expect("Failed to create hmac");
@@ -46,12 +46,11 @@ impl<'i> Attr<'i, MESSAGE_INTEGRITY> for IntegritySha1<'i> {
 }
 
 #[cfg(feature = "integrity")]
-impl<'i> IntegritySha1<'i> {
-	pub fn verify(&mut self, key: &'i [u8]) -> bool {
+impl IntegritySha1<'_> {
+	pub fn verify<'i>(&self, key: &'i [u8]) -> Option<IntegritySha1<'i>> {
 		use hmac::{Mac as _, SimpleHmac};
-		let res;
-		match self {
-			Self::Set { key: prev_key } => res = *prev_key == key,
+		let test = match self {
+			Self::Set { key: prev_key } => *prev_key == key,
 			Self::Check {
 				prefix,
 				mac: actual,
@@ -60,14 +59,13 @@ impl<'i> IntegritySha1<'i> {
 					SimpleHmac::<sha1::Sha1>::new_from_slice(key).expect("Failed to create hmac");
 				prefix.reduce_over_prefix(|s| mac.update(s));
 				let expected = mac.finalize().into_bytes();
-				res = expected.as_slice() == actual.as_slice();
-
-				if res {
-					*self = Self::Set { key }
-				}
+				expected.as_slice() == actual.as_slice()
 			}
+		};
+		if test {
+			Some(Integrity::Set { key })
+		} else {
+			None
 		}
-
-		res
 	}
 }
