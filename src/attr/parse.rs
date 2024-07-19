@@ -5,16 +5,18 @@ pub fn comprehension_required(typ: u16) -> bool {
 }
 
 pub trait AttrIter<'i>: Iterator<Item = (Prefix<'i>, u16, &'i [u8])> + Sized {
-	fn parse<'d, const T: u16, A: Attr<'i, T>>(
+	fn parse_with_err<'d, const T: u16, A: Attr<'i, T>>(
 		self,
 		dest: &'d mut Option<Result<A, A::Error>>,
 	) -> impl AttrIter<'i>
 	{
-		AttrParser {
-			inner: self,
-			stop: false,
-			dest,
-		}
+		AttrParser::new::<'i, T, A>(self, |prefix, value| *dest = Some(A::decode(prefix, value)))
+	}
+	fn parse<'d, const T: u16, A: Attr<'i, T>> (
+		self,
+		dest: &'d mut Option<A>
+	 ) -> impl AttrIter<'i> {
+		AttrParser::new::<'i, T, A>(self, |prefix, value| *dest = A::decode(prefix, value).ok())
 	}
 
 	#[cfg(feature = "std")]
@@ -47,28 +49,39 @@ pub trait AttrIter<'i>: Iterator<Item = (Prefix<'i>, u16, &'i [u8])> + Sized {
 }
 impl<'i, T: Iterator<Item = (Prefix<'i>, u16, &'i [u8])>> AttrIter<'i> for T {}
 
-struct AttrParser<'i, 'd, I, const T: u16, A: Attr<'i, T>> {
+struct AttrParser<I, D> {
 	inner: I,
-	stop: bool,
-	dest: &'d mut Option<Result<A, A::Error>>,
+	typ: u16,
+	must_precede: fn(u16) -> bool,
+	decode: Option<D>,
+}
+impl<I, D> AttrParser<I, D> {
+	fn new<'i, const T: u16, A: Attr<'i, T>>(inner: I, decode: D) -> Self {
+		Self {
+			inner,
+			typ: T,
+			must_precede: A::must_precede,
+			decode: Some(decode)
+		}
+	}
 }
 
-impl<'i, 'd, const T: u16, I: Iterator<Item = (Prefix<'i>, u16, &'i [u8])>, A: Attr<'i, T>> Iterator
-	for AttrParser<'i, 'd, I, T, A>
+impl<'i, I: Iterator<Item = (Prefix<'i>, u16, &'i [u8])>, D: FnOnce(Prefix<'i>, &'i [u8])> Iterator
+	for AttrParser<I, D>
 {
 	type Item = (Prefix<'i>, u16, &'i [u8]);
 	fn next(&mut self) -> Option<Self::Item> {
 		let (prefix, typ, value) = self.inner.next()?;
 
-		if A::must_precede(typ) { self.stop = true }
-
-		if typ == T {
-			if self.dest.is_none() && !self.stop {
-				*self.dest = Some(A::decode(prefix, value))
+		if typ == self.typ {
+			if let Some(func) = self.decode.take() {
+				func(prefix, value);
 			}
-			self.next()
-		} else {
-			Some((prefix, typ, value))
+			return self.next()
+		} else if (self.must_precede)(typ) {
+			self.decode.take();
 		}
+
+		Some((prefix, typ, value))
 	}
 }
