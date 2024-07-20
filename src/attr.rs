@@ -1,15 +1,7 @@
 mod attrs;
+pub mod values;
 pub mod integrity;
 pub mod parse;
-mod sockaddr;
-mod str;
-mod num;
-mod fingerprint;
-mod error;
-mod slice;
-mod empty;
-mod turn;
-mod unknown;
 
 pub trait Attr<'i, const T: u16>: Sized {
 	type Error;

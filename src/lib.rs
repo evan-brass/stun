@@ -4,6 +4,9 @@
 pub mod attr;
 mod stun;
 mod error;
+mod rfc8489;
+mod rfc8656;
+mod rfc8445;
 
 const MAGIC_COOKIE: u32 = 0x2112A442;
 

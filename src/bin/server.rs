@@ -176,7 +176,8 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 				Method::Refresh => {
 					stun.set_class(Class::Success);
 					stun.set_length(0);
-					if let Some(desired) = lifetime{
+					let desired = lifetime.unwrap_or(0);
+					if desired > 0 {
 						stun.append::<LIFETIME, _>(&desired).unwrap()
 					}
 				}
