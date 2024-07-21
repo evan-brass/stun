@@ -1,5 +1,5 @@
-// The STUN protocol
-// We only implement part of it
+//! The STUN protocol
+//! We only implement part of it
 
 use crate::attr::values::{sockaddr_attr, str_attr};
 use crate::attr::{Prefix, Attr, UNKNOWN_ATTRIBUTES, FINGERPRINT, ERROR_CODE};

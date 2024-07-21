@@ -1,3 +1,6 @@
+//! STUN is a format with a 20 byte header and a list of type-length-value attributes.
+//! 
+
 mod attrs;
 pub mod values;
 pub mod integrity;

@@ -1,5 +1,5 @@
-// The TURN protocol
-// We only implement part of it
+//! The TURN protocol
+//! We only implement part of it
 
 use crate::attr::{values::{empty_attr, numeric_attr, slice_attr, sockaddr_attr}, Attr, ADDRESS_ERROR_CODE, EVEN_PORT, CHANNEL_NUMBER};
 

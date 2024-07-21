@@ -1,5 +1,5 @@
-// The ICE protocol
-// We only implement part of it
+//! The ICE protocol
+//! We only implement part of it
 
 use crate::attr::values::{empty_attr, numeric_attr};
 

@@ -36,6 +36,11 @@ pub enum Method {
 pub struct Stun<B> {
 	pub buffer: B,
 }
+impl<B> Stun<B> {
+	pub fn new(buffer: B) -> Self {
+		Self { buffer }
+	}
+}
 
 #[derive(Debug)]
 pub enum Error {
