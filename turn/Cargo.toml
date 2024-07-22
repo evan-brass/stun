@@ -1,0 +1,10 @@
+[package]
+name = "turn"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+stun = { path = "../stun" }
+
+[features]
+std = []
