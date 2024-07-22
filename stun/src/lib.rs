@@ -8,6 +8,9 @@ mod rfc8489;
 mod rfc8656;
 mod rfc8445;
 
+#[cfg(test)]
+mod rfc5769;
+
 const MAGIC_COOKIE: u32 = 0x2112A442;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,6 +46,7 @@ impl<B> Stun<B> {
 }
 
 #[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub enum Error {
 	NotStun,
 	TooShort(usize),
