@@ -1,4 +1,4 @@
-use std::net::{SocketAddr, UdpSocket};
+use std::net::{IpAddr, SocketAddr, UdpSocket};
 use stun::{Stun, Class, Method, attr::*, attr::parse::AttrIter as _, attr::integrity::IntegritySha1};
 
 pub struct Server {
@@ -104,6 +104,15 @@ impl Server {
 		// Verify integrity
 		let set_integrity = integrity.and_then(|i| i.verify(key));
 
+		// Prepare the relayed address (Used by allocate)
+		let relayed = match (mapped.ip(), requested_family) {
+			(_, None) => Some(mapped),
+			(IpAddr::V4(_), Some(0x01)) => Some(mapped),
+			(IpAddr::V4(_), Some(0x02)) => Some(sender), // Sender is a mapped address
+			(IpAddr::V6(_), Some(0x02)) => Some(sender),
+			_ => None
+		};
+
 		// Handle Unknown Attributes
 		if let Some(unknown) = unknown {
 			msg.set_class(Class::Error);
@@ -151,22 +160,17 @@ impl Server {
 					msg.set_length(0);
 					msg.append(&(508, "!udp"))?;
 				}
-				Method::Allocate if mapped.is_ipv4() && requested_family.is_some_and(|f| f != 0x01) => {
-					msg.set_class(Class::Error);
-					msg.set_length(0);
-					msg.append(&(440, "v4v4"))?;
-				}
-				Method::Allocate if mapped.is_ipv6() && requested_family.is_some_and(|f| f != 0x02) => {
-					msg.set_class(Class::Error);
-					msg.set_length(0);
-					msg.append(&(440, "v6v6"))?;
-				}
-				Method::Allocate => {
+				Method::Allocate if relayed.is_some() => {
 					msg.set_class(Class::Success);
 					msg.set_length(0);
 					msg.append::<XOR_MAPPED_ADDRESS, _>(&mapped)?;
-					msg.append::<XOR_RELAYED_ADDRESS, _>(&mapped)?;
+					msg.append::<XOR_RELAYED_ADDRESS, _>(&relayed.unwrap())?;
 					msg.append::<LIFETIME, _>(&lifetime.unwrap_or(1000))?;
+				}
+				Method::Allocate => {
+					msg.set_class(Class::Error);
+					msg.set_length(0);
+					msg.append(&(440, ""))?;
 				}
 				Method::Refresh => {
 					msg.set_class(Class::Success);
