@@ -1,7 +1,7 @@
 //! Test Vectors for STUN
 //! 
 use crate::*;
-use attr::parse::AttrIter;
+use attr::{integrity::IntegritySha1, parse::AttrIter};
 
 const VECTOR_2_1: &[u8] = &[
 	0x00, 0x01, 0x00, 0x58, //     Request type and message length
@@ -61,7 +61,9 @@ fn decode_vector_2_1() {
 	assert_eq!(priority, Some(0x6e0001ff));
 	assert_eq!(ice_controlled, Some(0x932ff9b151263b36));
 	assert_eq!(username, Some("evtj:h6vY"));
-	assert!(integrity.map(|i| i.verify("VOkJxbRl1RmTxUk/WvJxBt".as_bytes())).is_some());
+	let key = "VOkJxbRl1RmTxUk/WvJxBt".as_bytes();
+	assert_eq!(integrity.and_then(|i| i.verify(key)), Some(IntegritySha1::Set { key }));
+	assert_eq!(integrity.and_then(|i| i.verify("wrong password".as_bytes())), None);
 	assert_eq!(fingerprint, Some(()));
 }
 

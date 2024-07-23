@@ -20,6 +20,7 @@ pub trait Attr<'i, const T: u16>: Sized {
 }
 
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct Prefix<'i> {
 	pub(crate) first_four: [u8; 4],
 	pub(crate) prefix: &'i [u8],
