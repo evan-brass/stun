@@ -10,6 +10,7 @@ sockaddr_attr!(ALTERNATE_SERVER, false);
 sockaddr_attr!(XOR_MAPPED_ADDRESS, true);
 str_attr!(REALM);
 str_attr!(NONCE);
+str_attr!(ALTERNATE_DOMAIN);
 str_attr!(SOFTWARE);
 
 impl<const N: usize> Attr<'_, UNKNOWN_ATTRIBUTES> for [u16; N] {

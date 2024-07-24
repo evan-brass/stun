@@ -1,7 +1,7 @@
 //! The TURN protocol
 //! We only implement part of it
 
-use crate::attr::{values::{empty_attr, numeric_attr, slice_attr, sockaddr_attr}, Attr, ADDRESS_ERROR_CODE, EVEN_PORT, CHANNEL_NUMBER};
+use crate::attr::{values::{empty_attr, numeric_attr, slice_attr, sockaddr_attr}, Attr, ADDRESS_ERROR_CODE, EVEN_PORT, CHANNEL_NUMBER, RESERVATION_TOKEN};
 
 sockaddr_attr!(XOR_PEER_ADDRESS, true);
 sockaddr_attr!(XOR_RELAYED_ADDRESS, true);
@@ -69,9 +69,19 @@ macro_rules! weird_byte_attr {
 				value[1..4].fill(0);
 			}
 		}
-		
 	};
 }
 weird_byte_attr!(REQUESTED_ADDRESS_FAMILY);
 weird_byte_attr!(REQUESTED_TRANSPORT);
 weird_byte_attr!(ADDITIONAL_ADDRESS_FAMILY);
+
+impl Attr<'_, RESERVATION_TOKEN> for [u8; 8] {
+	type Error = core::array::TryFromSliceError;
+	fn decode(_: crate::attr::Prefix, value: &[u8]) -> Result<Self, Self::Error> {
+		value.try_into()
+	}
+	fn length(&self) -> u16 { 8 }
+	fn encode(&self, _: crate::attr::Prefix, value: &mut [u8]) {
+		value.copy_from_slice(self)
+	}
+}
