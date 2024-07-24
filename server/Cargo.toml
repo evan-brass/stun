@@ -4,4 +4,5 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+openssl = "0.10.66"
 stun = { path = "../stun" }
