@@ -2,7 +2,7 @@
 //! We only implement part of it
 
 use crate::attr::values::{sockaddr_attr, str_attr};
-use crate::attr::{Prefix, Attr, UNKNOWN_ATTRIBUTES, FINGERPRINT, ERROR_CODE};
+use crate::attr::{Prefix, Attr, UNKNOWN_ATTRIBUTES, ERROR_CODE};
 
 sockaddr_attr!(MAPPED_ADDRESS, false);
 str_attr!(USERNAME);
@@ -34,33 +34,39 @@ impl<const N: usize> Attr<'_, UNKNOWN_ATTRIBUTES> for [u16; N] {
 }
 
 
-const FINGERPRINT_MAGIC: u32 = 0x5354554e;
-
-pub struct BadFingerprint;
-
 #[cfg(feature = "fingerprint")]
-impl Attr<'_, FINGERPRINT> for () {
-	type Error = BadFingerprint;
-	fn decode(prefix: crate::attr::Prefix, value: &[u8]) -> Result<Self, Self::Error> {
-		let actual = u32::from_be_bytes(value.try_into().map_err(|_| BadFingerprint)?);
+mod fingerprint {
+	use crc::Crc;
+	use crate::attr::{Attr, FINGERPRINT};
 
-		let mut hasher = crc32fast::Hasher::new();
-		prefix.reduce_over_prefix(|s| hasher.update(s));
-		let expected = hasher.finalize() ^ FINGERPRINT_MAGIC;
+	pub struct BadFingerprint;
 
-		(expected == actual).then_some(()).ok_or(BadFingerprint)
-	}
-	fn length(&self) -> u16 {
-		4
-	}
-	fn encode(&self, prefix: crate::attr::Prefix, value: &mut [u8]) {
-		let mut hasher = crc32fast::Hasher::new();
-		prefix.reduce_over_prefix(|s| hasher.update(s));
-		let expected = hasher.finalize() ^ FINGERPRINT_MAGIC;
-		value.copy_from_slice(&expected.to_be_bytes());
-	}
+	const FINGERPRINT_MAGIC: u32 = 0x5354554e;
+	const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
 
-	fn must_precede(_: u16) -> bool { false }
+	impl Attr<'_, FINGERPRINT> for () {
+		type Error = BadFingerprint;
+		fn decode(prefix: crate::attr::Prefix, value: &[u8]) -> Result<Self, Self::Error> {
+			let actual = u32::from_be_bytes(value.try_into().map_err(|_| BadFingerprint)?);
+	
+			let mut hasher = CRC.digest();
+			prefix.reduce_over_prefix(|s| hasher.update(s));
+			let expected = hasher.finalize() ^ FINGERPRINT_MAGIC;
+	
+			(expected == actual).then_some(()).ok_or(BadFingerprint)
+		}
+		fn length(&self) -> u16 {
+			4
+		}
+		fn encode(&self, prefix: crate::attr::Prefix, value: &mut [u8]) {
+			let mut hasher = CRC.digest();
+			prefix.reduce_over_prefix(|s| hasher.update(s));
+			let expected = hasher.finalize() ^ FINGERPRINT_MAGIC;
+			value.copy_from_slice(&expected.to_be_bytes());
+		}
+	
+		fn must_precede(_: u16) -> bool { false }
+	}
 }
 
 pub struct UnexpectedLength;
