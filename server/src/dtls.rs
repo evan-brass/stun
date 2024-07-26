@@ -5,7 +5,7 @@ use std::rc::Rc;
 use std::io::{Error, ErrorKind, Read, Write};
 
 use openssl::pkey::{PKey, Private};
-use openssl::ssl::{Ssl, SslAcceptor, SslMethod, SslStream};
+use openssl::ssl::{Ssl, SslAcceptor, SslMethod, SslStream, SslVerifyMode};
 use openssl::x509::X509;
 
 #[derive(Debug)]
@@ -62,6 +62,7 @@ impl Server {
 				builder.set_private_key(&self.pkey)?;
 				builder.set_certificate(&self.cert)?;
 				builder.check_private_key()?;
+				builder.set_verify_callback(SslVerifyMode::PEER, |_, _| true);
 				let acceptor = builder.build();
 				let mut ssl = Ssl::new(&acceptor.into_context())?;
 				ssl.set_mtu(1200)?;
