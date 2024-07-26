@@ -80,7 +80,12 @@ impl Server {
 		loop {
 			match stream.ssl_read(buffer) {
 				Ok(n) => {
-					println!("Data {sender} {:?}", &buffer[..n]);
+					if n >= 12 {
+						let sctp = sctp::Sctp::new(&buffer[..n]);
+						println!("SCTP Packet: {sctp:?}")
+					} else {
+						println!("Data {sender} {:?}", &buffer[..n]);
+					}
 				}
 				Err(err) => {
 					if err.code() != openssl::ssl::ErrorCode::WANT_READ {
