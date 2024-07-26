@@ -41,9 +41,6 @@ impl<B: Borrow<[u8]>> Stun<B> {
 
 		Ok(())
 	}
-	fn typ(&self) -> u16 {
-		u16::from_be_bytes(self.buffer.borrow()[0..2].try_into().unwrap())
-	}
 	pub fn class(&self) -> Class {
 		match self.typ() & 0x0110 {
 			0x0000 => Class::Request,
@@ -71,25 +68,12 @@ impl<B: Borrow<[u8]>> Stun<B> {
 			_ => Method::Unknown,
 		}
 	}
-	pub fn length(&self) -> u16 {
-		u16::from_be_bytes(self.buffer.borrow()[2..4].try_into().unwrap())
-	}
 	pub fn len(&self) -> usize {
 		20 + self.length() as usize
-	}
-	#[doc(hidden)]
-	pub fn cookie(&self) -> u32 {
-		u32::from_be_bytes(self.buffer.borrow()[4..8].try_into().unwrap())
-	}
-	pub fn txid(&self) -> &[u8; 12] {
-		self.buffer.borrow()[8..20].try_into().unwrap()
 	}
 }
 
 impl<B: BorrowMut<[u8]>> Stun<B> {
-	fn set_typ(&mut self, typ: u16) {
-		self.buffer.borrow_mut()[0..2].copy_from_slice(&typ.to_be_bytes());
-	}
 	pub fn set_class(&mut self, class: Class) {
 		let typ = self.typ();
 		self.set_typ(
@@ -110,18 +94,6 @@ impl<B: BorrowMut<[u8]>> Stun<B> {
 	}
 	pub fn set_method(&mut self, method: Method) {
 		self.set_raw_method(method as u16);
-	}
-	pub fn set_length(&mut self, length: u16) {
-		assert_eq!(length % 4, 0);
-		assert!(self.buffer.borrow().len() >= 20 + length as usize);
-		self.buffer.borrow_mut()[2..4].copy_from_slice(&length.to_be_bytes());
-	}
-	#[doc(hidden)]
-	pub fn set_cookie(&mut self, cookie: u32) {
-		self.buffer.borrow_mut()[4..8].copy_from_slice(&cookie.to_be_bytes());
-	}
-	pub fn set_txid(&mut self) -> &mut [u8; 12] {
-		(&mut self.buffer.borrow_mut()[8..20]).try_into().unwrap()
 	}
 
 	pub fn append<'i, const T: u16, A: attr::Attr<'i, T>>(&mut self, attr: &A) -> Result<(), Error> {
