@@ -7,6 +7,8 @@ mod error;
 mod rfc8489;
 mod rfc8656;
 mod rfc8445;
+
+#[macro_use]
 mod util;
 
 #[cfg(test)]
@@ -37,20 +39,12 @@ pub enum Method {
 	ChannelBind = 0x009,
 }
 
-util::declare!(Stun);
-util::be_field!(Stun, typ, set_typ, u16, 0..2);
-// TODO: Add these assert back to set_length?
-// assert_eq!(length % 4, 0);
-// assert!(self.buffer.borrow().len() >= 20 + length as usize);
-util::be_field!(Stun, length, set_length, u16, 2..4);
-util::be_field!(Stun, cookie, set_cookie, u32, 4..8);
-util::arr_field!(Stun, txid, set_txid, 12, 8..20);
-
-impl<B> Stun<B> {
-	pub fn new(buffer: B) -> Self {
-		Self { buffer }
-	}
-}
+declare!(Stun {
+	u16 typ,
+	u16 length,
+	u32 cookie,
+	[u8; 12] txid,
+});
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
