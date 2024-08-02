@@ -33,8 +33,9 @@ macro_rules! declare_be_field {
 }
 
 macro_rules! declare_fields {
-	($name:ident, $offset:expr, ) => {
+	($name:ident, $offset:expr, $align:literal, ) => {
 		impl<B: ::core::borrow::Borrow<[u8]>> $name<B> {
+			const ALIGN: usize = $align;
 			const MIN_LEN: usize = $offset;
 			pub fn new(buffer: B) -> Self {
 				assert!(buffer.borrow().len() >= Self::MIN_LEN);
@@ -42,7 +43,7 @@ macro_rules! declare_fields {
 			}
 		}
 	};
-	($name:ident, $offset:expr, ...$typ:ident,) => {
+	($name:ident, $offset:expr, $align:literal, ...$typ:ident,) => {
 		impl<'i, B> Iterator for crate::util::VarIter<'i, $name<B>, $typ<&'i [u8]>> {
 			type Item = $typ<&'i [u8]>;
 			fn next(&mut self) -> Option<Self::Item> {
@@ -67,23 +68,20 @@ macro_rules! declare_fields {
 				crate::util::VarIter::new(&self.buffer.borrow()[$name::<B>::MIN_LEN..])
 			}
 		}
-		declare_fields!($name, $offset, );
+		declare_fields!($name, $offset, $align, );
 	};
-	($name:ident, $offset:expr, len($adjust:literal), $($fields:tt)*) => {
+	($name:ident, $offset:expr, $align:literal, len($adjust:literal), $($fields:tt)*) => {
 		impl<B: ::core::borrow::Borrow<[u8]>> $name<B> {
 			pub fn len(&self) -> usize {
 				self.length() as usize + $adjust
 			}
 		}
-		declare_fields!($name, $offset, $($fields)*);
+		declare_fields!($name, $offset, $align, $($fields)*);
 	};
-	($name:ident, $offset:expr, align($align:literal), $($fields:tt)*) => {
-		impl<B> $name<B> {
-			const ALIGN: usize = $align;
-		}
-		declare_fields!($name, $offset, $($fields)*);
+	($name:ident, $offset:expr, $_:literal, align($align:literal), $($fields:tt)*) => {
+		declare_fields!($name, $offset, $align, $($fields)*);
 	};
-	($name:ident, $offset:expr, u8 $field:ident, $($fields:tt)*) => {
+	($name:ident, $offset:expr, $align:literal, u8 $field:ident, $($fields:tt)*) => {
 		impl<B: ::core::borrow::Borrow<[u8]>> $name<B> {
 			pub fn $field(&self) -> u8 {
 				self.buffer.borrow()[$offset]
@@ -96,17 +94,17 @@ macro_rules! declare_fields {
 				}
 			}
 		}
-		declare_fields!($name, $offset + 1, $($fields)*);
+		declare_fields!($name, $offset + 1, $align, $($fields)*);
 	};
-	($name:ident, $offset:expr, u16 $field:ident, $($fields:tt)*) => {
+	($name:ident, $offset:expr, $align:literal, u16 $field:ident, $($fields:tt)*) => {
 		declare_be_field!($name, $offset, $field, u16, 2);
-		declare_fields!($name, $offset + 2, $($fields)*);
+		declare_fields!($name, $offset + 2, $align, $($fields)*);
 	};
-	($name:ident, $offset:expr, u32 $field:ident, $($fields:tt)*) => {
+	($name:ident, $offset:expr, $align:literal, u32 $field:ident, $($fields:tt)*) => {
 		declare_be_field!($name, $offset, $field, u32, 4);
-		declare_fields!($name, $offset + 4, $($fields)*);
+		declare_fields!($name, $offset + 4, $align, $($fields)*);
 	};
-	($name:ident, $offset:expr, [u8; $n:literal] $field:ident, $($fields:tt)*) => {
+	($name:ident, $offset:expr, $align:literal, [u8; $n:literal] $field:ident, $($fields:tt)*) => {
 		impl<B: ::core::borrow::Borrow<[u8]>> $name<B> {
 			pub fn $field(&self) -> &[u8; $n] {
 				self.buffer.borrow()[$offset..][..$n].try_into().unwrap()
@@ -119,7 +117,7 @@ macro_rules! declare_fields {
 				}
 			}
 		}
-		declare_fields!($name, $offset + 4, $($fields)*);
+		declare_fields!($name, $offset + $n, $align, $($fields)*);
 	};
 }
 
@@ -129,7 +127,7 @@ macro_rules! declare {
 		pub struct $name<B> {
 			pub buffer: B
 		}
-		declare_fields!($name, 0, $($fields)*);
+		declare_fields!($name, 0, 1, $($fields)*);
 	};
 }
 
