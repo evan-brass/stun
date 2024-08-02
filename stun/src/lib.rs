@@ -25,13 +25,13 @@ pub enum Class {
 }
 
 spec_enum!(Method:u16 {
-	Binding = 0x001,
-	Allocate = 0x003,
-	Refresh = 0x004,
-	Send = 0x006,
-	Data = 0x007,
-	CreatePermission = 0x008,
-	ChannelBind = 0x009,
+	Binding = 0x001 "RFC8489",
+	Allocate = 0x003 "RFC8656",
+	Refresh = 0x004 "RFC8656",
+	Send = 0x006 "RFC8656",
+	Data = 0x007 "RFC8656",
+	CreatePermission = 0x008 "RFC8656",
+	ChannelBind = 0x009 "RFC8656",
 });
 
 declare!(Stun {

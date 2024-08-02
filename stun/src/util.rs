@@ -135,14 +135,19 @@ macro_rules! declare {
 
 #[macro_export]
 macro_rules! spec_enum {
-	($name:ident:$disc:ty { $($variant:ident = $val:literal,)*}) => {
-		#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-		#[non_exhaustive]
-		pub enum $name {
-			#[doc(hidden)]
-			Unknown = -1,
-
-			$($variant = $val,)*
+	($name:ident:$disc:ty { $($variant:ident = $val:literal $rfc:literal,)*}) => {
+		paste::paste! {
+			#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+			#[non_exhaustive]
+			pub enum $name {
+				#[doc(hidden)]
+				Unknown = -1,
+	
+				$(
+					#[doc = "Defined in [" $rfc "](https://datatracker.ietf.org/doc/html/" $rfc ")"]
+					$variant = $val,
+				)*
+			}
 		}
 		impl From<$disc> for $name {
 			fn from(value: $disc) -> Self {
