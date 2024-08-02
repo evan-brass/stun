@@ -42,7 +42,7 @@ macro_rules! declare_fields {
 			}
 		}
 	};
-	($name:ident, $offset:expr, ...$typ:ident, $($fields:tt)*) => {
+	($name:ident, $offset:expr, ...$typ:ident,) => {
 		impl<'i, B> Iterator for crate::util::VarIter<'i, $name<B>, $typ<&'i [u8]>> {
 			type Item = $typ<&'i [u8]>;
 			fn next(&mut self) -> Option<Self::Item> {
@@ -67,7 +67,7 @@ macro_rules! declare_fields {
 				crate::util::VarIter::new(&self.buffer.borrow()[$name::<B>::MIN_LEN..])
 			}
 		}
-		declare_fields!($name, $offset, $($fields)*);
+		declare_fields!($name, $offset, );
 	};
 	($name:ident, $offset:expr, len($adjust:literal), $($fields:tt)*) => {
 		impl<B: ::core::borrow::Borrow<[u8]>> $name<B> {
