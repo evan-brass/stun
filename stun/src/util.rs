@@ -1,3 +1,18 @@
+pub struct VarIter<'i, C, I> {
+	pub buffer: &'i [u8],
+	container: core::marker::PhantomData<C>,
+	item: core::marker::PhantomData<I>
+}
+impl<'i, C, I> VarIter<'i, C, I> {
+	pub fn new(buffer: &'i [u8]) -> Self {
+		Self {
+			buffer,
+			container: core::marker::PhantomData,
+			item: core::marker::PhantomData
+		}
+	}
+}
+
 macro_rules! declare_be_field {
 	($name:ident, $offset:expr, $field:ident, $typ:ty, $len:literal) => {
 		impl<B: ::core::borrow::Borrow<[u8]>> $name<B> {
@@ -26,6 +41,61 @@ macro_rules! declare_fields {
 				Self { buffer }
 			}
 		}
+	};
+	($name:ident, $offset:expr, ...$typ:ident, $($fields:tt)*) => {
+		impl<'i, B> Iterator for crate::util::VarIter<'i, $name<B>, $typ<&'i [u8]>> {
+			type Item = $typ<&'i [u8]>;
+			fn next(&mut self) -> Option<Self::Item> {
+				if self.buffer.len() < $typ::<&'i [u8]>::MIN_LEN { return None }
+				let ret = $typ { buffer: self.buffer };
+				let align = $typ::<&'i [i8]>::ALIGN;
+				let len = ret.len();
+				if self.buffer.len() < len { return None }
+				let padding = (align - len % align) % align;
+				let total = len + padding;
+
+				self.buffer = if self.buffer.len() >= total { &self.buffer[total..] } else { &[] };
+
+				Some(ret)
+			}
+		}
+		impl<'i, B: ::core::borrow::Borrow<[u8]>> IntoIterator for &'i $name<B> {
+			type IntoIter = crate::util::VarIter<'i, $name<B>, $typ<&'i [u8]>>;
+			type Item = $typ<&'i [u8]>;
+			fn into_iter(self) -> Self::IntoIter {
+				crate::util::VarIter::new(&self.buffer.borrow()[$name::<B>::MIN_LEN..])
+			}
+		}
+		declare_fields!($name, $offset, $($fields)*);
+	};
+	($name:ident, $offset:expr, len($adjust:literal), $($fields:tt)*) => {
+		impl<B: ::core::borrow::Borrow<[u8]>> $name<B> {
+			pub fn len(&self) -> usize {
+				self.length() as usize + $adjust
+			}
+		}
+		declare_fields!($name, $offset, $($fields)*);
+	};
+	($name:ident, $offset:expr, align($align:literal), $($fields:tt)*) => {
+		impl<B> $name<B> {
+			const ALIGN: usize = $align;
+		}
+		declare_fields!($name, $offset, $($fields)*);
+	};
+	($name:ident, $offset:expr, u8 $field:ident, $($fields:tt)*) => {
+		impl<B: ::core::borrow::Borrow<[u8]>> $name<B> {
+			pub fn $field(&self) -> u8 {
+				self.buffer.borrow()[$offset]
+			}
+		}
+		paste::paste! {
+			impl<B: ::core::borrow::BorrowMut<[u8]>> $name<B> {
+				pub fn [<set_ $field>](&mut self, value: u8) {
+					self.buffer.borrow_mut()[$offset] = value;
+				}
+			}
+		}
+		declare_fields!($name, $offset + 1, $($fields)*);
 	};
 	($name:ident, $offset:expr, u16 $field:ident, $($fields:tt)*) => {
 		declare_be_field!($name, $offset, $field, u16, 2);

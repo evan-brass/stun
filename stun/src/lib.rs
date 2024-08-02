@@ -44,6 +44,7 @@ declare!(Stun {
 	u16 length,
 	u32 cookie,
 	[u8; 12] txid,
+	len(20),
 });
 
 #[derive(Debug)]

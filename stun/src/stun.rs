@@ -68,9 +68,6 @@ impl<B: Borrow<[u8]>> Stun<B> {
 			_ => Method::Unknown,
 		}
 	}
-	pub fn len(&self) -> usize {
-		20 + self.length() as usize
-	}
 }
 
 impl<B: BorrowMut<[u8]>> Stun<B> {
