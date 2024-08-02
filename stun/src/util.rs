@@ -51,6 +51,7 @@ macro_rules! declare_fields {
 				let align = $typ::<&'i [i8]>::ALIGN;
 				let len = ret.len();
 				if self.buffer.len() < len { return None }
+				let ret = $typ { buffer: &self.buffer[..len] };
 				let padding = (align - len % align) % align;
 				let total = len + padding;
 
@@ -129,5 +130,28 @@ macro_rules! declare {
 			pub buffer: B
 		}
 		declare_fields!($name, 0, $($fields)*);
+	};
+}
+
+#[macro_export]
+macro_rules! spec_enum {
+	($name:ident:$disc:ty { $($variant:ident = $val:literal,)*}) => {
+		#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+		#[non_exhaustive]
+		pub enum $name {
+			#[doc(hidden)]
+			Unknown = -1,
+
+			$($variant = $val,)*
+		}
+		impl From<$disc> for $name {
+			fn from(value: $disc) -> Self {
+				match value {
+					$($val => Self::$variant,)*
+
+					_ => Self::Unknown
+				}
+			}
+		}
 	};
 }

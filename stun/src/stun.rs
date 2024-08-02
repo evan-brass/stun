@@ -56,17 +56,7 @@ impl<B: Borrow<[u8]>> Stun<B> {
 		(typ & 0x3E00) >> 2 | (typ & 0x00E0) >> 1 | (typ & 0x000F)
 	}
 	pub fn method(&self) -> Method {
-		match self.raw_method() {
-			0x001 => Method::Binding,
-			0x003 => Method::Allocate,
-			0x004 => Method::Refresh,
-			0x006 => Method::Send,
-			0x007 => Method::Data,
-			0x008 => Method::CreatePermission,
-			0x009 => Method::ChannelBind,
-
-			_ => Method::Unknown,
-		}
+		self.raw_method().into()
 	}
 }
 

@@ -24,12 +24,7 @@ pub enum Class {
 	Error,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum Method {
-	#[doc(hidden)]
-	Unknown = -1,
-
+spec_enum!(Method:u16 {
 	Binding = 0x001,
 	Allocate = 0x003,
 	Refresh = 0x004,
@@ -37,7 +32,7 @@ pub enum Method {
 	Data = 0x007,
 	CreatePermission = 0x008,
 	ChannelBind = 0x009,
-}
+});
 
 declare!(Stun {
 	u16 typ,
