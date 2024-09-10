@@ -36,10 +36,9 @@ spec_enum!(Method:u16 {
 
 declare!(Stun {
 	u16 typ,
-	u16 length,
+	len(Self::MIN_LEN, u16 length),
 	u32 cookie,
 	[u8; 12] txid,
-	len(20),
 });
 
 #[derive(Debug)]

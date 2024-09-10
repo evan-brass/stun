@@ -83,7 +83,7 @@ impl Server {
 					if n >= 12 {
 						let sctp = sctp::Sctp::new(&buffer[..n]);
 						println!("SCTP Packet: {sctp:?}");
-						for chunk in &sctp {
+						for chunk in sctp.chunks() {
 							println!(" - {chunk:?}");
 						}
 					} else {

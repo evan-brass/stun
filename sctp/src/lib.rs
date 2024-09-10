@@ -14,9 +14,8 @@ declare!(Sctp {
 declare!(Chunk {
 	u8 typ,
 	u8 flags,
-	u16 length,
+	len(0, u16 length),
 	align(4),
-	len(0),
 });
 
 impl<B: ::core::borrow::Borrow<[u8]>> core::fmt::Debug for Sctp<B> {
