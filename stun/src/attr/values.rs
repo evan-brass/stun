@@ -34,6 +34,8 @@ macro_rules! sockaddr_attr {
 		
 				Ok(Self::new(ip, port))
 			}
+		}
+		impl crate::attr::AttrEnc<{crate::attr::$typ}> for core::net::SocketAddr {
 			fn length(&self) -> u16 {
 				match self {
 					Self::V4(_) => 8,
@@ -72,6 +74,8 @@ macro_rules! numeric_attr {
 			fn decode(_: crate::attr::Prefix, value: &[u8]) -> Result<Self, Self::Error> {
 				value.try_into().map(Self::from_be_bytes)
 			}
+		}
+		impl crate::attr::AttrEnc<{crate::attr::$typ}> for $num_typ {
 			fn length(&self) -> u16 {
 				self.to_be_bytes().len() as u16
 			}
@@ -91,6 +95,8 @@ macro_rules! str_attr {
 			fn decode(_: crate::attr::Prefix, value: &'i [u8]) -> Result<Self, Self::Error> {
 				core::str::from_utf8(value)
 			}
+		}
+		impl<'i> crate::attr::AttrEnc<{crate::attr::$typ}> for &'i str {
 			fn length(&self) -> u16 {
 				self.len() as u16
 			}
@@ -110,6 +116,8 @@ macro_rules! slice_attr {
 			fn decode(_: crate::attr::Prefix, value: &'i [u8]) -> Result<Self, Self::Error> {
 				Ok(value)
 			}
+		}
+		impl crate::attr::AttrEnc<{crate::attr::$typ}> for &[u8] {
 			fn length(&self) -> u16 {
 				self.len() as u16
 			}
@@ -129,6 +137,8 @@ macro_rules! empty_attr {
 			fn decode(_: crate::attr::Prefix, _: &[u8]) -> Result<Self, Self::Error> {
 				Ok(())
 			}
+		}
+		impl crate::attr::AttrEnc<{crate::attr::$typ}> for () {
 			fn length(&self) -> u16 { 0 }
 			fn encode(&self, _: crate::attr::Prefix, _: &mut [u8]) {}
 		}

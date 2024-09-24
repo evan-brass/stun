@@ -1,7 +1,7 @@
 //! The TURN protocol
 //! We only implement part of it
 
-use crate::attr::{values::{empty_attr, numeric_attr, slice_attr, sockaddr_attr}, Attr, ADDRESS_ERROR_CODE, EVEN_PORT, CHANNEL_NUMBER, RESERVATION_TOKEN};
+use crate::attr::{values::{empty_attr, numeric_attr, slice_attr, sockaddr_attr}, Attr, AttrEnc, ADDRESS_ERROR_CODE, CHANNEL_NUMBER, EVEN_PORT, RESERVATION_TOKEN};
 
 sockaddr_attr!(XOR_PEER_ADDRESS, true);
 sockaddr_attr!(XOR_RELAYED_ADDRESS, true);
@@ -15,11 +15,13 @@ impl<'i> Attr<'i, ADDRESS_ERROR_CODE> for (u8, u16, &'i str) {
 		let (code, reason) = Attr::decode(prefix, value)?;
 		Ok((value[0], code, reason))
 	}
+}
+impl AttrEnc<ADDRESS_ERROR_CODE> for (u8, u16, &str) {
 	fn length(&self) -> u16 {
-		Attr::length(&(self.1, self.2))
+		AttrEnc::length(&(self.1, self.2))
 	}
 	fn encode(&self, prefix: crate::attr::Prefix, value: &mut [u8]) {
-		Attr::encode(&(self.1, self.2), prefix, value);
+		AttrEnc::encode(&(self.1, self.2), prefix, value);
 		value[0] = self.0;
 	}
 }
@@ -30,6 +32,8 @@ impl Attr<'_, CHANNEL_NUMBER> for u16 {
 		let Some(arr) = value.first_chunk() else { return Err(crate::rfc8489::UnexpectedLength) };
 		Ok(u16::from_be_bytes(*arr))
 	}
+}
+impl AttrEnc<CHANNEL_NUMBER> for u16 {
 	fn length(&self) -> u16 {
 		4
 	}
@@ -45,6 +49,8 @@ impl Attr<'_, EVEN_PORT> for bool {
 		if value.len() < 1 { return Err(crate::rfc8489::UnexpectedLength) }
 		Ok(value[0] & 0b10000000 != 0)
 	}
+}
+impl AttrEnc<EVEN_PORT> for bool {
 	fn length(&self) -> u16 {
 		1
 	}
@@ -61,6 +67,8 @@ macro_rules! weird_byte_attr {
 				if value.len() < 1 { return Err(crate::rfc8489::UnexpectedLength) }
 				Ok(value[0])
 			}
+		}
+		impl crate::attr::AttrEnc<{crate::attr::$typ}> for u8 {
 			fn length(&self) -> u16 {
 				4
 			}
@@ -80,6 +88,8 @@ impl Attr<'_, RESERVATION_TOKEN> for [u8; 8] {
 	fn decode(_: crate::attr::Prefix, value: &[u8]) -> Result<Self, Self::Error> {
 		value.try_into()
 	}
+}
+impl AttrEnc<RESERVATION_TOKEN> for [u8; 8] {
 	fn length(&self) -> u16 { 8 }
 	fn encode(&self, _: crate::attr::Prefix, value: &mut [u8]) {
 		value.copy_from_slice(self)

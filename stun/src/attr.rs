@@ -10,13 +10,15 @@ pub trait Attr<'i, const T: u16>: Sized {
 	type Error;
 
 	fn decode(prefix: Prefix<'i>, value: &'i [u8]) -> Result<Self, Self::Error>;
-	fn length(&self) -> u16;
-	fn encode(&self, prefix: Prefix, value: &mut [u8]);
 
 	/// Some attributes must preced other attributes
 	fn must_precede(typ: u16) -> bool {
 		matches!(typ, MESSAGE_INTEGRITY | MESSAGE_INTEGRITY_SHA256 | FINGERPRINT)
 	}
+}
+pub trait AttrEnc<const T: u16> {
+	fn length(&self) -> u16;
+	fn encode(&self, prefix: Prefix, value: &mut [u8]);
 }
 
 #[derive(Debug, Clone, Copy)]

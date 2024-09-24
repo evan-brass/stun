@@ -2,7 +2,7 @@
 //! We only implement part of it
 
 use crate::attr::values::{sockaddr_attr, str_attr};
-use crate::attr::{Prefix, Attr, UNKNOWN_ATTRIBUTES, ERROR_CODE};
+use crate::attr::{Attr, AttrEnc, Prefix, ERROR_CODE, UNKNOWN_ATTRIBUTES};
 
 sockaddr_attr!(MAPPED_ADDRESS, false);
 str_attr!(USERNAME);
@@ -22,6 +22,8 @@ impl<const N: usize> Attr<'_, UNKNOWN_ATTRIBUTES> for [u16; N] {
 		}
 		Ok(ret)
 	}
+}
+impl<const N: usize> AttrEnc<UNKNOWN_ATTRIBUTES> for [u16; N] {
 	fn length(&self) -> u16 {
 		(self.iter().filter(|a| **a != 0).count() * 2) as u16
 	}
@@ -37,7 +39,7 @@ impl<const N: usize> Attr<'_, UNKNOWN_ATTRIBUTES> for [u16; N] {
 #[cfg(feature = "fingerprint")]
 mod fingerprint {
 	use crc::Crc;
-	use crate::attr::{Attr, FINGERPRINT};
+	use crate::attr::{Attr, AttrEnc, FINGERPRINT};
 
 	pub struct BadFingerprint;
 
@@ -55,6 +57,10 @@ mod fingerprint {
 	
 			(expected == actual).then_some(()).ok_or(BadFingerprint)
 		}
+	
+		fn must_precede(_: u16) -> bool { false }
+	}
+	impl AttrEnc<FINGERPRINT> for () {
 		fn length(&self) -> u16 {
 			4
 		}
@@ -64,8 +70,6 @@ mod fingerprint {
 			let expected = hasher.finalize() ^ FINGERPRINT_MAGIC;
 			value.copy_from_slice(&expected.to_be_bytes());
 		}
-	
-		fn must_precede(_: u16) -> bool { false }
 	}
 }
 
@@ -84,6 +88,8 @@ impl<'i> Attr<'i, ERROR_CODE> for (u16, &'i str) {
 
 		Ok((err_code, reason))
 	}
+}
+impl AttrEnc<ERROR_CODE> for (u16, &str) {
 	fn length(&self) -> u16 {
 		4 + self.1.len() as u16
 	}

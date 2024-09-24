@@ -83,7 +83,7 @@ impl<B: BorrowMut<[u8]>> Stun<B> {
 		self.set_raw_method(method as u16);
 	}
 
-	pub fn append<'i, const T: u16, A: attr::Attr<'i, T>>(&mut self, attr: &A) -> Result<(), Error> {
+	pub fn append<const T: u16, A: attr::AttrEnc<T>>(&mut self, attr: &A) -> Result<(), Error> {
 		let attr_len = attr.length();
 		let padd_len = (4 - attr_len % 4) % 4;
 		let test = u16::MAX - 4 - padd_len;
