@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<script type="module">
+const config = {
+	iceTransportPolicy: 'relay',
+	iceServers: [{urls: 'turn:stun.evan-brass.net', username: 'guest', credential: 'password'}]
+};
+const t = new RTCPeerConnection(config);
+t.createDataChannel('');
+t.addEventListener('icecandidate', ({candidate}) => console.log(candidate));
+
+await t.setLocalDescription();
+</script>
