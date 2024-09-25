@@ -23,9 +23,20 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 		PKey::hmac(hasher.finish().unwrap().deref())?
 	};
 
+	// Set a cap on the number of bytes the server will send
+	let send_budget: usize = 50_000_000_000;
+	let mut bytes_received = 0;
+	let mut packets_sent = 0;
+	let mut bytes_sent = 0;
+
 	let mut buffer = [0; 2048];
 	loop {
 		let (len, sender) = sock.recv_from(&mut buffer)?;
+
+		// Update the budget:
+		bytes_received += len;
+		if bytes_sent >= send_budget { continue }
+
 		let mut msg = Stun::new(buffer.as_mut_slice());
 		if len != msg.len() { continue }
 
@@ -186,7 +197,17 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 			_ => continue,
 		}
 
+		// Increment the bytes sent (this means we can overshoot the send_budget by at most 1 packet, aka <= 2048 bytes)
+		let out_len = msg.len();
+		bytes_sent += out_len;
+		packets_sent += 1;
+		if packets_sent % 1000 == 0 {
+			println!("{bytes_received} bytes received, {bytes_sent} bytes sent ({packets_sent} packets) of {send_budget}");
+		}
+
 		// Send the response
-		let _ = sock.send_to(&msg.buffer[..msg.len()], receiver);
+		if let Err(e) = sock.send_to(&msg.buffer[..len], receiver) {
+			println!("{e}");
+		}
 	}
 }
