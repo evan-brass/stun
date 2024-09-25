@@ -96,7 +96,7 @@ macro_rules! str_attr {
 				core::str::from_utf8(value)
 			}
 		}
-		impl<'i> crate::attr::AttrEnc<{crate::attr::$typ}> for &'i str {
+		impl crate::attr::AttrEnc<{crate::attr::$typ}> for &str {
 			fn length(&self) -> u16 {
 				self.len() as u16
 			}

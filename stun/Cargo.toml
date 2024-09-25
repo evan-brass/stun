@@ -5,14 +5,11 @@ edition = "2021"
 
 [dependencies]
 paste = "1.0.15"
-hmac = { version = "0.12.1", optional = true }
-sha1 = { version = "0.10.6", optional = true }
 crc = { version = "3.2.1", optional = true }
 openssl = { version = "0.10.66", optional = true }
 
 [features]
 std = []
-integrity = ["dep:sha1", "dep:hmac"]
-integrity-openssl = ["dep:openssl"]
+integrity = ["dep:openssl"]
 fingerprint = ["dep:crc"]
 default = ["std", "integrity", "fingerprint"]

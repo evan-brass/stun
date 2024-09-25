@@ -1,7 +1,9 @@
-use std::net::{SocketAddr, UdpSocket};
+use std::{net::{SocketAddr, UdpSocket}, ops::Deref};
 
+use openssl::{hash::{Hasher, MessageDigest}, pkey::PKey, sign::Signer};
 use stun::{
 	attr::{
+		integrity::Integrity,
 		parse::AttrIter as _,
 		*
 	}, Class, Method, Stun
@@ -9,6 +11,17 @@ use stun::{
 
 fn main() -> Result<std::convert::Infallible, std::io::Error> {
 	let sock = UdpSocket::bind("[::]:3478")?;
+
+	// Expected Long-Term authentication
+	let exp_realm = "none";
+	let exp_nonce = "none";
+	let exp_username = "guest";
+	let exp_password = "password";
+	let turn_key = {
+		let mut hasher = Hasher::new(MessageDigest::md5()).unwrap();
+		hasher.update(format!("{exp_username}:{exp_realm}:{exp_password}").as_bytes()).unwrap();
+		PKey::hmac(hasher.finish().unwrap().deref())?
+	};
 
 	let mut buffer = [0; 2048];
 	loop {
@@ -22,35 +35,51 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 
 		// Attributes
 		let mut software = None;
+		let mut username = None;
+		let mut realm = None;
+		let mut integrity = None;
+		let mut nonce = None;
 		let mut lifetime = None;
-		let mut requested_family = None;
-		let mut even_port = None;
 		let mut requested_transport = None;
-		let mut dont_fragment = None;
+		let mut channel = None;
 		let mut xor_peer = None;
 		let mut data = None;
-		let mut channel = None;
 
 		// Decide which attributes to parse based on the method:
+		// NOTE: The spec says you're supposed to parse every attribute you understand, and if you don't expect an attribute to ignore it
+		// ... but I think this is stupid, so this server reports known but unexpected attributes as unknown attributes.
 		let common = msg.into_iter()
 			.parse::<SOFTWARE, &str>(&mut software);
 		let unknown: Option<[u16; 4]> = match (msg.class(), msg.method()) {
 			(Class::Request, Method::Allocate) => common
+				.parse::<USERNAME, &str>(&mut username)
+				.parse::<REALM, &str>(&mut realm)
+				.parse::<MESSAGE_INTEGRITY, Integrity<20>>(&mut integrity)
+				.parse::<NONCE, &str>(&mut nonce)
 				.parse::<LIFETIME, u32>(&mut lifetime)
-				.parse::<REQUESTED_ADDRESS_FAMILY, u8>(&mut requested_family)
-				.parse::<EVEN_PORT, bool>(&mut even_port)
 				.parse::<REQUESTED_TRANSPORT, u8>(&mut requested_transport)
-				.parse::<DONT_FRAGMENT, ()>(&mut dont_fragment)
 				.collect_unknown(),
 			(Class::Request, Method::Refresh) => common
+				.parse::<USERNAME, &str>(&mut username)
+				.parse::<REALM, &str>(&mut realm)
+				.parse::<MESSAGE_INTEGRITY, Integrity<20>>(&mut integrity)
+				.parse::<NONCE, &str>(&mut nonce)
 				.parse::<LIFETIME, u32>(&mut lifetime)
-				.parse::<REQUESTED_ADDRESS_FAMILY, _>(&mut requested_family)
 				.collect_unknown(),
 			(Class::Request, Method::CreatePermission) => common
+				.parse::<USERNAME, &str>(&mut username)
+				.parse::<REALM, &str>(&mut realm)
+				.parse::<MESSAGE_INTEGRITY, Integrity<20>>(&mut integrity)
+				.parse::<NONCE, &str>(&mut nonce)
 				.parse::<LIFETIME, u32>(&mut lifetime)
 				.parse::<XOR_PEER_ADDRESS, SocketAddr>(&mut xor_peer)
 				.collect_unknown(),
 			(Class::Request, Method::ChannelBind) => common
+				.parse::<USERNAME, &str>(&mut username)
+				.parse::<REALM, &str>(&mut realm)
+				.parse::<MESSAGE_INTEGRITY, Integrity<20>>(&mut integrity)
+				.parse::<NONCE, &str>(&mut nonce)
+				.parse::<XOR_PEER_ADDRESS, SocketAddr>(&mut xor_peer)
 				.parse::<CHANNEL_NUMBER, u16>(&mut channel)
 				.collect_unknown(),
 			(Class::Indication, Method::Send) => common
@@ -60,68 +89,98 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 			_ => common.collect_unknown(),
 		};
 
-		// Reset the buffer to prepare for the response
-		if let Some(data) = data {
-			// Shift the Data attribute to the start of the message:
-			let len = 4 + data.len();
-			let padding = (4 - len % 4) % 4;
-			let i = data.as_ptr() as usize - 4 - msg.buffer.as_ptr() as usize;
-
-			msg.buffer.copy_within(i..i + len, 20);
-			msg.buffer[i + len..][..padding].fill(0);
-			msg.set_length((len + padding) as u16);
-		}
-		else { 
-			msg.set_length(0);
-		}
-
 		// Handle Unknown Attributes
-		match msg.method() {
-			// Unknown Attributes on requests with known methods
-			Method::Binding | Method::Allocate | Method::Refresh | Method::CreatePermission | Method::ChannelBind if msg.class() == Class::Request && unknown.is_some() => {
+		match (msg.class(), msg.method()) {
+			// Error 404 for requests with unknown methods
+			(Class::Request, meth) if !matches!(meth,
+				Method::Binding |
+				Method::Allocate |
+				Method::Refresh |
+				Method::CreatePermission |
+				Method::ChannelBind
+			) => {
+				msg.set_length(0);
 				msg.set_class(Class::Error);
-				msg.append::<ERROR_CODE, _>(&(420, "Unknown Attributes"))?;
+				msg.append::<ERROR_CODE, _>(&(404, "Not Implemented"))?;
+			}
+
+			// Error 420 for known-methods with unexpected attributes
+			(Class::Request, _) if unknown.is_some() => {
+				msg.set_length(0);
+				msg.set_class(Class::Error);
+				msg.append::<ERROR_CODE, _>(&(420, "Attributes Unknown or Unexpected"))?;
 				msg.append::<UNKNOWN_ATTRIBUTES, _>(&unknown.unwrap())?;
 			}
 
-			Method::Binding => {
+			// Binding Requests
+			(Class::Request, Method::Binding) => {
+				msg.set_length(0);
 				msg.set_class(Class::Success);
 				msg.append::<XOR_MAPPED_ADDRESS, _>(&canonical)?;
 			}
 
-			Method::Allocate => {
+			// Check for provided but bad integrity
+			(Class::Request, _) if integrity.as_ref().map(
+				|a| a.verify(Signer::new(MessageDigest::sha1(), &turn_key).unwrap())
+			) == Some(false) => {
+				msg.set_length(0);
+				msg.set_class(Class::Error);
+				msg.append::<ERROR_CODE, _>(&(403, ""))?;
+			}
+
+			// Check for missing integrity
+			(Class::Request, _) if realm != Some(&exp_realm) || integrity.is_none() => {
+				msg.set_length(0);
+				msg.set_class(Class::Error);
+				msg.append::<ERROR_CODE, _>(&(401, ""))?;
+				msg.append::<REALM, _>(&exp_realm)?;
+				msg.append::<NONCE, _>(&exp_nonce)?;
+			}
+
+			// You should check the nonce, but the nonce is a stupid part of 
+
+			(Class::Request, Method::Allocate) => {
+				msg.set_length(0);
 				msg.set_class(Class::Success);
 				msg.append::<XOR_MAPPED_ADDRESS, _>(&canonical)?;
 				msg.append::<XOR_RELAYED_ADDRESS, _>(&sender)?;
 				msg.append::<LIFETIME, _>(&lifetime.unwrap_or(1000))?;
+				msg.append::<MESSAGE_INTEGRITY, _>(&turn_key)?;
 			}
 
-			Method::Refresh if lifetime == Some(0) => continue,
-			Method::Refresh => {
+			(Class::Request, Method::Refresh) if lifetime == Some(0) => continue, // Refresh lifetime=0 means close the connection and should be dropped
+			(Class::Request, Method::Refresh) => {
+				msg.set_length(0);
 				msg.set_class(Class::Success);
 				msg.append::<LIFETIME, _>(&lifetime.unwrap_or(1000))?;
+				msg.append::<MESSAGE_INTEGRITY, _>(&turn_key)?;
 			}
 
-			Method::CreatePermission => {
+			(Class::Request, Method::CreatePermission) => {
+				msg.set_length(0);
 				msg.set_class(Class::Success);
+				msg.append::<MESSAGE_INTEGRITY, _>(&turn_key)?;
 			}
 
 			// Supporting ChannelBind would require state, so we ignore these requests and let them timeout
-			Method::ChannelBind => continue,
+			(Class::Request, Method::ChannelBind) => continue,
 
-			Method::Send => if let Some(SocketAddr::V6(_)) = xor_peer {
+			(Class::Indication, Method::Send) => if let (Some(SocketAddr::V6(_)), Some(data)) = (xor_peer, data) {
 				receiver = xor_peer.unwrap();
+
+				// Shift the Data attribute to the start of the message:
+				let len = 4 + data.len();
+				let padding = (4 - len % 4) % 4;
+				let i = data.as_ptr() as usize - 4 - msg.buffer.as_ptr() as usize;
+	
+				msg.buffer.copy_within(i..i + len, 20);
+				msg.buffer[i + len..][..padding].fill(0);
+				msg.set_length((len + padding) as u16);
 
 				// Change method and append the peer's address
 				msg.set_method(Method::Data);
 				msg.append::<XOR_PEER_ADDRESS, _>(&sender)?;
 			} else { continue }
-
-			// Requests with unknown Methods
-			_ if msg.class() == Class::Request => {
-				msg.set_class(Class::Error);
-				msg.append::<ERROR_CODE, _>(&(404, "Unimplemented"))?;
-			}
 
 			// Everything else gets dropped.
 			_ => continue,

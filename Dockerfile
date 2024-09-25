@@ -1,7 +1,12 @@
-FROM --platform=linux/arm64 scratch
+FROM rust:1.81
+
+RUN apt-get install pkgconf libssl-dev
+
+WORKDIR /usr/src/masquerade
+COPY . .
+
+RUN cargo install --path server
 
 EXPOSE 3478/udp
 
-COPY ./target/x86_64-unknown-linux-musl/release/masquerade /masquerade
-
-CMD ["/masquerade"]
+CMD ["masquerade"]
