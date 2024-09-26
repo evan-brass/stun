@@ -206,7 +206,7 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 		}
 
 		// Send the response
-		if let Err(e) = sock.send_to(&msg.buffer[..len], receiver) {
+		if let Err(e) = sock.send_to(&msg.buffer[..out_len], receiver) {
 			println!("{e}");
 		}
 	}
