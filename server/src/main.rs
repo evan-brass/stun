@@ -112,14 +112,14 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 			) => {
 				msg.set_length(0);
 				msg.set_class(Class::Error);
-				msg.append::<ERROR_CODE, _>(&(404, "Not Implemented"))?;
+				msg.append::<ERROR_CODE, _>(&(404, ""))?;
 			}
 
 			// Error 420 for known-methods with unexpected attributes
 			(Class::Request, _) if unknown.is_some() => {
 				msg.set_length(0);
 				msg.set_class(Class::Error);
-				msg.append::<ERROR_CODE, _>(&(420, "Attributes Unknown or Unexpected"))?;
+				msg.append::<ERROR_CODE, _>(&(420, ""))?;
 				msg.append::<UNKNOWN_ATTRIBUTES, _>(&unknown.unwrap())?;
 			}
 
@@ -148,8 +148,6 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 				msg.append::<NONCE, _>(&exp_nonce)?;
 			}
 
-			// You should check the nonce, but the nonce is a stupid part of 
-
 			(Class::Request, Method::Allocate) => {
 				msg.set_length(0);
 				msg.set_class(Class::Success);
@@ -159,7 +157,7 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 				msg.append::<MESSAGE_INTEGRITY, _>(&turn_key)?;
 			}
 
-			(Class::Request, Method::Refresh) if lifetime == Some(0) => continue, // Refresh lifetime=0 means close the connection and should be dropped
+			(Class::Request, Method::Refresh) if lifetime == Some(0) => continue, // Refresh lifetime=0 means close the connection and needs no response.
 			(Class::Request, Method::Refresh) => {
 				msg.set_length(0);
 				msg.set_class(Class::Success);
@@ -173,8 +171,13 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 				msg.append::<MESSAGE_INTEGRITY, _>(&turn_key)?;
 			}
 
-			// Supporting ChannelBind would require state, so we ignore these requests and let them timeout
-			(Class::Request, Method::ChannelBind) => continue,
+			// HACK: Chrome asks to bind channels, but we cannot implement that statelessly. So return an error and the only error that doesn't seem to kill the connection is 438 (Stale Nonce).  Except I forgot to append the nonce, but Chrome seems to be fine with that??? Whatever.  Problem solved.
+			(Class::Request, Method::ChannelBind) => {
+				msg.set_length(0);
+				msg.set_class(Class::Error);
+				msg.append::<ERROR_CODE, _>(&(438, ""))?;
+				msg.append::<MESSAGE_INTEGRITY, _>(&turn_key)?;
+			},
 
 			(Class::Indication, Method::Send) => if let (Some(SocketAddr::V6(_)), Some(data)) = (xor_peer, data) {
 				receiver = xor_peer.unwrap();
