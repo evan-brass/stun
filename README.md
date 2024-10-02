@@ -1,7 +1,7 @@
 # Masquerade
 A stateless UDP server implementing a subset of the STUN / TURN protocol.  I wrote this because I want to run a free TURN server.
 
-I'm running an instance of this server at stun.evan-brass.net.  Feel free to use it, as long as you read the caveats bellow.
+I'm running an instance of this server at stun.evan-brass.net.  Feel free to use it, as long as you read the caveats below.
 ```javascript
 const config = {
 	iceTransportPolicy: 'relay', // Force relaying because I want to show the TURN server in action.
