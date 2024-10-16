@@ -1,5 +1,4 @@
 use std::net::SocketAddr;
-use openssl::{hash::{Hasher, MessageDigest}, pkey::{PKey, Private}, sign::Signer};
 use stun::{
 	Stun,
 	Class, Method,

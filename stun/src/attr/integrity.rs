@@ -36,8 +36,7 @@ mod mbedtls_integrity {
 			hasher.verify_slice(self.mac).is_ok()
 		}
 	}
-
-	impl<T: HasPrivate> AttrEnc<MESSAGE_INTEGRITY> for PKey<T> {
+	impl AttrEnc<MESSAGE_INTEGRITY> for &[u8] {
 		fn length(&self) -> u16 { 20 }
 		fn encode(&self, prefix: Prefix, value: &mut [u8]) {
 			let mut hasher: Hmac<Sha1> = Hmac::new_from_slice(*self).unwrap();

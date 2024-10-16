@@ -1,6 +1,6 @@
 use std::net::UdpSocket;
 use std::{time::{Instant, Duration}, thread::sleep};
-use openssl::rand::rand_bytes;
+use rand::random;
 
 mod server;
 use server::Server;
@@ -39,13 +39,9 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 		let Some((out_len, receiver)) = server.handle(&mut buffer, len, sender) else { continue };
 
 		// Prevent amplification attacks by dropping ~50% of responses that are larger than the request
-		if out_len > len {
-			let mut drop_test = [0];
-			rand_bytes(&mut drop_test)?;
-			if (0..u8::MAX/2).contains(&drop_test[0]) {
-				stats.n_packets_drop += 1;
-				continue
-			}
+		if out_len > len && random() {
+			stats.n_packets_drop += 1;
+			continue;
 		}
 
 		let _ = sock.send_to(&buffer[..out_len], receiver);
