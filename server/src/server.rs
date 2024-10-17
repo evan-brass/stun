@@ -19,37 +19,29 @@ const KNOWN_METHODS: [Method; 7] = [
 	Method::ChannelBind,
 	Method::Data,
 ];
+
+// Constants used by this server
+const TURN_REALM: &str = "none";
+const TURN_NONCE: &str = "none";
+const TURN_USER: &str = "guest";
+// turn_key = md5("guest:none:password")
+const TURN_KEY: &[u8] = &[0x01, 0x5c, 0x8a, 0x97, 0x3e, 0xa4, 0xb4, 0xa9, 0xc9, 0x45, 0xf6, 0x90, 0x14, 0x2b, 0xf3, 0xad];
+const ICE_KEY: &[u8] = "the/ice/password/constant".as_bytes();
+
 pub struct Server {
-	realm: &'static str,
-	nonce: &'static str,
-	turn_user: &'static str,
-	turn_key: PKey<Private>,
-	ice_ufrag: &'static str,
-	ice_key: PKey<Private>,
+	ice_ufrag: String,
 }
 
 impl Server {
 	pub fn new() -> Result<Self, std::io::Error> {
-		let realm = "none";
-		let nonce = "none";
-		let turn_user = "guest";
-		let turn_credential = "password";
-		let turn_key = {
-			let mut hasher = Hasher::new(MessageDigest::md5())?;
-			hasher.update(format!("{turn_user}:{realm}:{turn_credential}").as_bytes())?;
-			PKey::hmac(&*hasher.finish()?)?
-		};
-
-		let ice_ufrag = "ucCm6JK3s22XuCRiTZVFpWajUq0tIpB7lDn1Sv8dRv3";
-		let ice_key = PKey::hmac("the/ice/password/constant".as_bytes())?;
-
-		Ok(Self { realm, nonce, turn_user, turn_key, ice_ufrag, ice_key })
+		let ice_ufrag = String::from("w+Skud1WCH6mFV736w+9JOvE1K2SM5Ex9Dc+xVdEEdU");
+		Ok(Self { ice_ufrag })
 	}
 	pub fn handle(&mut self, buffer: &mut [u8], len: usize, sender: SocketAddr) -> Option<(usize, SocketAddr)> {
 		// println!("{sender} {buffer:?}");
 		// TODO: Handle DTLS
 
-		// Make sure that there's enough data to 
+		// Make sure that there's enough data to read it as a STUN packet
 		if buffer.len() < 20 { return None }
 		if len < 20 { return None }
 
@@ -116,29 +108,29 @@ impl Server {
 				msg.set_length(0);
 				msg.set_class(Class::Error);
 				msg.append::<ERROR_CODE, _>(&(401, "")).ok()?;
-				msg.append::<REALM, _>(&self.realm).ok()?;
-				msg.append::<NONCE, _>(&self.nonce).ok()?;
+				msg.append::<REALM, _>(&TURN_REALM).ok()?;
+				msg.append::<NONCE, _>(&TURN_NONCE).ok()?;
 			}
 
 			// Unauthorized TURN Requests
-			(Class::Request, Method::Allocate | Method::Refresh | Method::CreatePermission | Method::ChannelBind) if username != Some(&self.turn_user) => {
+			(Class::Request, Method::Allocate | Method::Refresh | Method::CreatePermission | Method::ChannelBind) if username != Some(&TURN_USER) => {
 				msg.set_length(0);
 				msg.set_class(Class::Error);
 				msg.append::<ERROR_CODE, _>(&(441, "")).ok()?;
 			}
-			(Class::Request, Method::Allocate | Method::Refresh | Method::CreatePermission | Method::ChannelBind) if integrity.as_ref().is_some_and(|i| !i.verify(Signer::new(MessageDigest::sha1(), &self.turn_key).unwrap())) => {
+			(Class::Request, Method::Allocate | Method::Refresh | Method::CreatePermission | Method::ChannelBind) if integrity.as_ref().is_some_and(|i| !i.verify(&TURN_KEY)) => {
 				msg.set_length(0);
 				msg.set_class(Class::Error);
 				msg.append::<ERROR_CODE, _>(&(403, "")).ok()?;
 			}
 
 			// Stale TURN Requests
-			(Class::Request, Method::Allocate | Method::Refresh | Method::CreatePermission | Method::ChannelBind) if nonce != Some(&self.nonce) => {
+			(Class::Request, Method::Allocate | Method::Refresh | Method::CreatePermission | Method::ChannelBind) if nonce != Some(&TURN_NONCE) => {
 				msg.set_length(0);
 				msg.set_class(Class::Error);
 				msg.append::<ERROR_CODE, _>(&(438, "")).ok()?;
-				msg.append::<NONCE, _>(&self.nonce).ok()?;
-				msg.append::<MESSAGE_INTEGRITY, _>(&self.turn_key).ok()?;
+				msg.append::<NONCE, _>(&TURN_NONCE).ok()?;
+				msg.append::<MESSAGE_INTEGRITY, _>(&TURN_KEY).ok()?;
 			}
 
 			// Normal STUN Binding
@@ -153,7 +145,7 @@ impl Server {
 				msg.set_length(0);
 				msg.set_class(Class::Error);
 				msg.append::<ERROR_CODE, _>(&(442, "")).ok()?;
-				msg.append::<MESSAGE_INTEGRITY, _>(&self.turn_key).ok()?;
+				msg.append::<MESSAGE_INTEGRITY, _>(&TURN_KEY).ok()?;
 			}
 
 			// Allocate
@@ -163,7 +155,7 @@ impl Server {
 				msg.append::<XOR_MAPPED_ADDRESS, _>(&canonical).ok()?;
 				msg.append::<XOR_RELAYED_ADDRESS, _>(&sender).ok()?;
 				msg.append::<LIFETIME, _>(&lifetime.unwrap_or(1000)).ok()?;
-				msg.append::<MESSAGE_INTEGRITY, _>(&self.turn_key).ok()?;
+				msg.append::<MESSAGE_INTEGRITY, _>(&TURN_KEY).ok()?;
 			}
 
 			// Refresh
@@ -172,14 +164,14 @@ impl Server {
 				msg.set_length(0);
 				msg.set_class(Class::Success);
 				msg.append::<LIFETIME, _>(&lifetime.unwrap_or(1000)).ok()?;
-				msg.append::<MESSAGE_INTEGRITY, _>(&self.turn_key).ok()?;
+				msg.append::<MESSAGE_INTEGRITY, _>(&TURN_KEY).ok()?;
 			}
 
 			// Create Permission
 			(Class::Request, Method::CreatePermission) => {
 				msg.set_length(0);
 				msg.set_class(Class::Success);
-				msg.append::<MESSAGE_INTEGRITY, _>(&self.turn_key).ok()?;
+				msg.append::<MESSAGE_INTEGRITY, _>(&TURN_KEY).ok()?;
 			}
 
 			// Channel Bind
@@ -188,7 +180,7 @@ impl Server {
 				msg.set_length(0);
 				msg.set_class(Class::Error);
 				msg.append::<ERROR_CODE, _>(&(438, "")).ok()?;
-				msg.append::<MESSAGE_INTEGRITY, _>(&self.turn_key).ok()?;
+				msg.append::<MESSAGE_INTEGRITY, _>(&TURN_KEY).ok()?;
 			}
 
 			// Send
@@ -249,7 +241,7 @@ impl Server {
 				}
 
 				// Check ICE pwd
-				if !integrity.verify(Signer::new(MessageDigest::sha1(), &self.ice_key).ok()?) {
+				if !integrity.verify(&ICE_KEY) {
 					msg.set_length(0);
 					msg.set_class(Class::Error);
 					msg.append::<ERROR_CODE, _>(&(403, "")).ok()?;
@@ -260,7 +252,7 @@ impl Server {
 					msg.set_length(0);
 					msg.set_class(Class::Error);
 					msg.append::<ERROR_CODE, _>(&(487, "")).ok()?;
-					msg.append::<MESSAGE_INTEGRITY, _>(&self.ice_key).ok()?;
+					msg.append::<MESSAGE_INTEGRITY, _>(&ICE_KEY).ok()?;
 				}
 
 				// Connection Tested
@@ -268,7 +260,7 @@ impl Server {
 					msg.set_length(0);
 					msg.set_class(Class::Success);
 					msg.append::<XOR_MAPPED_ADDRESS, _>(&canonical).ok()?;
-					msg.append::<MESSAGE_INTEGRITY, _>(&self.ice_key).ok()?;
+					msg.append::<MESSAGE_INTEGRITY, _>(&ICE_KEY).ok()?;
 				}
 				msg.append::<FINGERPRINT, _>(&()).ok()?;
 			}
