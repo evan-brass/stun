@@ -52,7 +52,7 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 		stats.n_packets_sent += 1;
 		stats.bytes_sent += out_len;
 
-		// Sleep ~1 ms per 20 bytes sent:
-		sleep(Duration::from_millis(1 + out_len as u64 / 20));
+		// Sleep ~1 ms per 40 bytes sent:
+		sleep(Duration::from_millis(1 + out_len as u64 / 40));
 	}
 }
