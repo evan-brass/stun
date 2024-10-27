@@ -24,26 +24,25 @@ impl<'i> Attr<'i, MESSAGE_INTEGRITY_SHA256> for Integrity<'i, 32> {
 
 
 #[cfg(feature = "integrity")]
-mod openssl_integrity {
-	use super::*;
-	use openssl::{hash::MessageDigest, pkey::{HasPrivate, PKey}, sign::Signer};
+mod mbedtls_integrity {
+	use hmac::{Hmac, Mac, digest::FixedOutput as _};
+	use sha1::Sha1;
 
-	impl<const L: usize> Integrity<'_, L> {
-		// HACK: I don't know why, but Verifier::new(MessageDigest::sha1(), &pkey) is erroring, but Signer works just fine, so I guess we'll use Signer instead of Verifier...
-		pub fn verify(&self, mut signer: Signer) -> bool {
-			self.prefix.reduce_over_prefix(|chunk| signer.update(chunk).unwrap());
-			let mut expected = [0; L];
-			signer.sign(expected.as_mut_slice()).unwrap();
-			expected == *self.mac
+	use super::*;
+	impl Integrity<'_, 20> {
+		pub fn verify(&self, key: &[u8]) -> bool {
+			let mut hasher: Hmac<Sha1> = Hmac::new_from_slice(key).unwrap();
+			self.prefix.reduce_over_prefix(|s| hasher.update(s));
+			hasher.verify_slice(self.mac).is_ok()
 		}
 	}
 
 	impl<T: HasPrivate> AttrEnc<MESSAGE_INTEGRITY> for PKey<T> {
 		fn length(&self) -> u16 { 20 }
 		fn encode(&self, prefix: Prefix, value: &mut [u8]) {
-			let mut signer = Signer::new(MessageDigest::sha1(), self).unwrap();
-			prefix.reduce_over_prefix(|chunk| signer.update(chunk).unwrap());
-			assert_eq!(signer.sign(value).unwrap(), 20);
+			let mut hasher: Hmac<Sha1> = Hmac::new_from_slice(*self).unwrap();
+			prefix.reduce_over_prefix(|s| hasher.update(s));
+			hasher.finalize_into(value.into());
 		}
 	}
 }
