@@ -36,19 +36,7 @@ impl Server {
 		let ice_ufrag = String::from("w+Skud1WCH6mFV736w+9JOvE1K2SM5Ex9Dc+xVdEEdU");
 		Ok(Self { ice_ufrag })
 	}
-	pub fn handle(&mut self, buffer: &mut [u8], len: usize, sender: SocketAddr) -> Option<(usize, SocketAddr)> {
-		// println!("{sender} {buffer:?}");
-		// TODO: Handle DTLS
-
-		// Make sure that there's enough data to read it as a STUN packet
-		if buffer.len() < 20 { return None }
-		if len < 20 { return None }
-
-		// Check expected length against actual length
-		let mut msg = Stun::new(buffer);
-		// println!("{sender} {:?} {:?} {}/{len}", msg.class(), msg.method(), msg.len());
-		if msg.len() != len { return None }
-
+	fn handle_stun(&mut self, msg: &mut Stun<&mut [u8]>, sender: SocketAddr) -> Option<SocketAddr> {
 		let canonical = SocketAddr::new(sender.ip().to_canonical(), sender.port());
 		let mut receiver = sender;
 
@@ -268,6 +256,26 @@ impl Server {
 			_ => return None
 		}
 
-		Some((msg.len(), receiver))
+		Some(receiver)
+	}
+	pub fn handle(&mut self, buffer: &mut [u8], len: usize, sender: SocketAddr) -> Option<(usize, SocketAddr)> {
+		match buffer.first()? {
+			/* STUN */ 0..20 => {
+				// Make sure that there's enough data to read it as a STUN packet
+				if buffer.len() < 20 || len < 20 { return None }
+
+				// Check expected length against actual length
+				let mut msg = Stun::new(buffer);
+				if msg.len() != len { return None }
+
+				// Handle the message and return the result if a response address is returned
+				let receiver = self.handle_stun(&mut msg, sender)?;
+				Some((msg.len(), receiver))
+			},
+			/* DTLS CID */ 25 => None,
+			/* DTLS */ 20..64 => None,
+			/* TURN Channel Data */ 64..80 => None,
+			/* DROP */ _ => None,
+		}
 	}
 }
