@@ -211,7 +211,7 @@ impl Server {
 				let len = data.len();
 				msg.buffer.copy_within(i..i + 4 + len, 20);
 
-				let (inner_len, inner_receiver) = self.handle(&mut msg.buffer[24..], len, sender)?;
+				let (inner_len, inner_receiver) = self.handle(&mut msg.buffer[24..], len, peer)?;
 				if inner_receiver != receiver {
 					// Don't support multi-hop path routing. Partially because I haven't figured that part out, and partially because I feel the amplification is a bad idea.
 					return None
