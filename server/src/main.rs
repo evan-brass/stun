@@ -25,7 +25,7 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 		let _ = sock.send_to(&buffer[..out_len], receiver);
 		
 		// Sleep ~1 ms per 40 bytes sent:
-		let wait = Duration::from_millis(1 + out_len as u64 / 40) - start.elapsed();
+		let wait = Duration::from_millis(1 + out_len as u64 / 40).saturating_sub(start.elapsed());
 		sleep(wait);
 	}
 }
