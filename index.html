@@ -29,8 +29,6 @@ await server.setRemoteDescription({
 await server.setLocalDescription();
 </script>
 <script type="module">
-const username = 'guest';
-const credential = 'password';
 const config = {
 	iceTransportPolicy: 'relay',
 	iceServers: [{
@@ -43,17 +41,15 @@ const config = {
 
 const a = new RTCPeerConnection(config);
 const b = new RTCPeerConnection(config);
+a.createDataChannel('');
 
 a.addEventListener('connectionstatechange', () => console.log('a', a.connectionState));
 b.addEventListener('connectionstatechange', () => console.log('b', b.connectionState));
 
-a.createDataChannel('');
 await a.setLocalDescription();
 while (a.iceGatheringState != 'complete') await new Promise(res => a.addEventListener('icegatheringstatechange', res, {once: true}));
 
 await b.setRemoteDescription(a.localDescription);
 await b.setLocalDescription();
-while (b.iceGatheringState != 'complete') await new Promise(res => b.addEventListener('icegatheringstatechange', res, {once: true}));
-
 await a.setRemoteDescription(b.localDescription);
 </script>

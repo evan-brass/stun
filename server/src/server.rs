@@ -272,7 +272,6 @@ impl Server {
 				let receiver = self.handle_stun(&mut msg, sender)?;
 				Some((msg.len(), receiver))
 			},
-			/* DTLS CID */ 25 => None,
 			/* DTLS */ 20..64 => None,
 			/* TURN Channel Data */ 64..80 => None,
 			/* DROP */ _ => None,
