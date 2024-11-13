@@ -1,4 +1,5 @@
-use std::net::SocketAddr;
+use std::{collections::{btree_map::Entry, BTreeMap, VecDeque}, io::{Error, ErrorKind}, net::SocketAddr};
+use openssl::{base64, hash::MessageDigest, pkey::PKey, ssl::{ErrorCode, Ssl, SslAcceptor, SslMethod, SslStream, SslVerifyMode}, x509::X509};
 use stun::{
 	Stun,
 	Class, Method,
@@ -25,16 +26,60 @@ const TURN_NONCE: &str = "none";
 const TURN_USER: &str = "guest";
 // turn_key = md5("guest:none:password")
 const TURN_KEY: &[u8] = &[0x01, 0x5c, 0x8a, 0x97, 0x3e, 0xa4, 0xb4, 0xa9, 0xc9, 0x45, 0xf6, 0x90, 0x14, 0x2b, 0xf3, 0xad];
-const ICE_KEY: &[u8] = "the/ice/password/constant".as_bytes();
+const ICE_KEY: &[u8] = b"the/ice/password/constant";
+
+#[derive(Default, Debug)]
+struct Buffers {
+	// Yuck.  I hate buffering.
+	pub send: Vec<u8>,
+	pub recv: VecDeque<u8>
+}
+impl std::io::Read for Buffers {
+	fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+		match self.recv.read(buf) {
+			// Make read async:
+			Ok(0) => Err(Error::new(ErrorKind::WouldBlock, "")),
+			r => r
+		}
+	}
+}
+impl std::io::Write for Buffers {
+	fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+		// TODO: Should write return EWOULDBLOCK if it already contains a packet?
+		self.send.write(buf)
+	}
+	fn flush(&mut self) -> std::io::Result<()> {
+		self.send.flush()
+	}
+}
 
 pub struct Server {
+	acceptor: SslAcceptor,
+	contexts: BTreeMap<SocketAddr, SslStream<Buffers>>,
 	ice_ufrag: String,
 }
 
 impl Server {
 	pub fn new() -> Result<Self, std::io::Error> {
-		let ice_ufrag = String::from("w+Skud1WCH6mFV736w+9JOvE1K2SM5Ex9Dc+xVdEEdU");
-		Ok(Self { ice_ufrag })
+		let pem = std::fs::read("cert.pem")?;
+		let certificate = X509::from_pem(&pem)?;
+		let pkey = PKey::private_key_from_pem(&pem)?;
+
+		// Figure out what our ufrag is
+		let fingerprint = certificate.digest(MessageDigest::sha256())?;
+		let mut ice_ufrag = base64::encode_block(&fingerprint);
+		while ice_ufrag.ends_with('=') { ice_ufrag.pop(); }
+		println!("Our ufrag: {ice_ufrag}");
+		
+		// Configure a DTLS server
+		let mut acceptor = SslAcceptor::mozilla_modern_v5(SslMethod::dtls())?;
+		acceptor.set_certificate(&certificate)?;
+		acceptor.set_private_key(&pkey)?;
+		acceptor.check_private_key()?;
+		acceptor.set_verify(SslVerifyMode::NONE);
+		let acceptor = acceptor.build();
+
+		Ok(Self { acceptor, ice_ufrag, contexts: BTreeMap::new() })
 	}
 	fn handle_stun(&mut self, msg: &mut Stun<&mut [u8]>, sender: SocketAddr) -> Option<SocketAddr> {
 		let canonical = SocketAddr::new(sender.ip().to_canonical(), sender.port());
@@ -272,7 +317,42 @@ impl Server {
 				let receiver = self.handle_stun(&mut msg, sender)?;
 				Some((msg.len(), receiver))
 			},
-			/* DTLS */ 20..64 => None,
+			/* DTLS */ 20..64 => {
+				// println!("dtls: {:?}", &buffer[..len]);
+
+				let mut entry = self.contexts.entry(sender);
+				let ssl = match entry {
+					Entry::Vacant(v) => {
+						let mut ssl = Ssl::new(self.acceptor.context()).unwrap();
+						ssl.set_accept_state();
+						let val = SslStream::new(ssl, Buffers::default()).unwrap();
+						v.insert(val)
+					}
+					Entry::Occupied(ref mut o) => o.get_mut()
+				};
+
+				// Push the received packet into the receive buffer
+				ssl.get_mut().recv.extend(&buffer[..len]);
+
+				match ssl.ssl_read(buffer) {
+					Ok(n) => {
+						println!("sctp: {:?}", &buffer[..n]);
+					}
+					Err(e) if matches!(e.code(), ErrorCode::WANT_WRITE | ErrorCode::WANT_READ) => {
+						let send = &mut ssl.get_mut().send;
+						let min = usize::min(buffer.len(), send.len());
+						buffer[..min].copy_from_slice(send);
+						send.clear();
+						return Some((min, sender));
+					}
+					Err(e) => {
+						println!("{e:?}");
+						self.contexts.remove(&sender);
+					}
+				}
+
+				None
+			},
 			/* TURN Channel Data */ 64..80 => None,
 			/* DROP */ _ => None,
 		}

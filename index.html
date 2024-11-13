@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<script type="_module">
+<script type="module">
 const server = new RTCPeerConnection();
 
 await server.setRemoteDescription({
@@ -28,7 +28,7 @@ await server.setRemoteDescription({
 });
 await server.setLocalDescription();
 </script>
-<script type="module">
+<script type="_module">
 const config = {
 	iceTransportPolicy: 'relay',
 	iceServers: [{
