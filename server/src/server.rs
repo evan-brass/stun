@@ -1,11 +1,11 @@
-use std::{collections::{btree_map::Entry, BTreeMap, VecDeque}, io::{Error, ErrorKind}, net::SocketAddr};
+use std::{collections::{btree_map::Entry, BTreeMap, VecDeque}, io::{Error, ErrorKind}, net::{SocketAddr, SocketAddrV6}};
 use openssl::{base64, hash::MessageDigest, pkey::PKey, ssl::{ErrorCode, Ssl, SslAcceptor, SslMethod, SslStream, SslVerifyMode}, x509::X509};
+use parse::AttrIter;
 use stun::{
 	Stun,
 	Class, Method,
 	attr::{
 		integrity::Integrity,
-		parse::AttrIter as _,
 		*
 	}
 };
@@ -81,12 +81,90 @@ impl Server {
 
 		Ok(Self { acceptor, ice_ufrag, contexts: BTreeMap::new() })
 	}
-	fn handle_stun(&mut self, msg: &mut Stun<&mut [u8]>, sender: SocketAddr) -> Option<SocketAddr> {
+	fn handle_ice(&mut self, msg: &mut Stun<&mut [u8]>, sender: SocketAddr) -> Option<()> {
+		let mut username = None;
+		let mut integrity = None;
+		let mut ice_controlled = None;
+		let mut ice_controlling = None;
+		let mut priority = None;
+		let mut use_candidate = None;
+		let mut fingerprint = None;
+		let unknowns = msg.into_iter()
+			.parse::<USERNAME, &str>(&mut username)
+			.parse::<MESSAGE_INTEGRITY, Integrity< 20>>(&mut integrity)
+			.parse::<ICE_CONTROLLED, u64>(&mut ice_controlled)
+			.parse::<ICE_CONTROLLING, u64>(&mut ice_controlling)
+			.parse::<PRIORITY, u32>(&mut priority)
+			.parse::<USE_CANDIDATE, ()>(&mut use_candidate)
+			.parse::<FINGERPRINT, ()>(&mut fingerprint)
+			.collect_unknown::<1>();
+
+		// Check + extract everything:
+		let (Class::Request, Method::Binding) = (msg.class(), msg.method()) else { return None };
+		let (username, integrity, _priority, (), None) = (username?, integrity?, priority?, fingerprint?, unknowns) else { return None };
+		if ice_controlled.is_some() && ice_controlling.is_some() { return None }
+		let (dst_ufrag, _src_ufrag) = username.split_once(':')?;
+
+		// Answer the ICE Connection test ourself
+		if dst_ufrag == self.ice_ufrag {
+			// Check the ICE pwd
+			if !integrity.verify(ICE_KEY) {
+				msg.set_class(Class::Error);
+				msg.set_length(0);
+				msg.append::<ERROR_CODE, _>(&(403, "")).ok()?;
+				msg.append::<FINGERPRINT, _>(&()).ok()?;
+			}
+
+			// Check ICE role (clients must be controlling)
+			else if ice_controlled.is_some() {
+				msg.set_class(Class::Error);
+				msg.set_length(0);
+				msg.append::<ERROR_CODE, _>(&(487, "")).ok()?;
+				msg.append::<MESSAGE_INTEGRITY, _>(&ICE_KEY).ok()?;
+				msg.append::<FINGERPRINT, _>(&()).ok()?;
+			}
+
+			// Done
+			else {
+				msg.set_class(Class::Success);
+				msg.set_length(0);
+				msg.append::<XOR_MAPPED_ADDRESS, _>(&sender).ok()?;
+				msg.append::<MESSAGE_INTEGRITY, _>(&ICE_KEY).ok()?;
+				msg.append::<FINGERPRINT, _>(&()).ok()?;
+			}
+
+			Some(())
+		}
+
+		// Try to put the ICE connection test into someone's mailbox
+		else {
+			println!("TODO: mailbox {dst_ufrag}");
+			// TODO: Check our map of DTLS contexts for one with a base64(sha256(X509 cert)) that matches dst_ufrag
+			// TODO: Append an xor_peer attribute
+			None
+		}
+	}
+	fn handle_hosted(&mut self, buffer: &mut [u8], len: usize, sender: SocketAddr) -> Option<usize> {
+		match buffer.first()? {
+			/* STUN */ 0..20 => {
+				let mut msg = Stun::new(buffer);
+				if msg.len() != len { return None }
+				self.handle_ice(&mut msg, sender)?;
+				Some(msg.len())
+			}
+			/* DTLS */ 20..64 => {
+				println!("TODO: DTLS");
+				None
+			}
+			/* TURN Channel Data */ 64..80 => None,
+			/* DROP */ _ => None,
+		}
+	}
+	pub fn handle_turn(&mut self, msg: &mut Stun<&mut [u8]>, sender: SocketAddr) -> Option<SocketAddr> {
 		let canonical = SocketAddr::new(sender.ip().to_canonical(), sender.port());
 		let mut receiver = sender;
 
 		// Parse known attributes
-		let mut software = None;
 		let mut username = None;
 		let mut realm = None;
 		let mut integrity = None;
@@ -96,13 +174,7 @@ impl Server {
 		let mut channel = None;
 		let mut xor_peer = None;
 		let mut data = None;
-		let mut ice_controlled = None;
-		let mut ice_controlling = None;
-		let mut use_candidate = None;
-		let mut fingerprint = None;
-		let mut priority = None;
 		let unknown_attrs = msg.into_iter()
-			.parse::<SOFTWARE, &str>(&mut software)
 			.parse::<USERNAME, &str>(&mut username)
 			.parse::<REALM, &str>(&mut realm)
 			.parse::<MESSAGE_INTEGRITY, Integrity< 20>>(&mut integrity)
@@ -112,11 +184,6 @@ impl Server {
 			.parse::<CHANNEL_NUMBER, u16>(&mut channel)
 			.parse::<XOR_PEER_ADDRESS, SocketAddr>(&mut xor_peer)
 			.parse::<DATA, &[u8]>(&mut data)
-			.parse::<ICE_CONTROLLED, u64>(&mut ice_controlled)
-			.parse::<ICE_CONTROLLING, u64>(&mut ice_controlling)
-			.parse::<USE_CANDIDATE, ()>(&mut use_candidate)
-			.parse::<FINGERPRINT, ()>(&mut fingerprint)
-			.parse::<PRIORITY, u32>(&mut priority)
 			.collect_unknown::<4>();
 
 		match (msg.class(), msg.method()) {
@@ -135,8 +202,51 @@ impl Server {
 				msg.append::<UNKNOWN_ATTRIBUTES, _>(&unknown_attrs.unwrap()).ok()?;
 			}
 
-			// Unauthenticated TURN Requests
-			(Class::Request, Method::Allocate | Method::Refresh | Method::CreatePermission | Method::ChannelBind) if integrity.is_none() => {
+			// Binding Request
+			(Class::Request, Method::Binding) => {
+				msg.set_length(0);
+				msg.set_class(Class::Success);
+				msg.append::<XOR_MAPPED_ADDRESS, _>(&canonical).ok()?;
+			}
+
+			// Send Indication
+			(Class::Indication, Method::Send) => if let (Some(SocketAddr::V6(_)), Some(data)) = (xor_peer, data) {
+				let peer = xor_peer.unwrap();
+
+				let orig_len = data.len();
+				// Shift the data attribute to where we want it:
+				let i = data.as_ptr() as usize - 4 - msg.buffer.as_ptr() as usize;
+				msg.buffer.copy_within(i..i + 4 + orig_len, 44);
+
+				// Change the method, and change the length
+				msg.set_method(Method::Data);
+				msg.set_length(0);
+
+				// Handle hosted
+				let len = if peer.ip().is_loopback() {
+					msg.append::<XOR_PEER_ADDRESS, _>(&peer).unwrap();
+					self.handle_hosted(&mut msg.buffer[48..], orig_len, sender)?
+				}
+				// Handle relay:
+				else {
+					msg.append::<XOR_PEER_ADDRESS, _>(&sender).unwrap();
+					receiver = peer;
+					orig_len
+				} as u16;
+
+				// Calculate the padding of the resulting data attribute:
+				let padding = (4 - len % 4) % 4;
+				// Update the length of the data attribute
+				msg.buffer[46..48].copy_from_slice(&len.to_be_bytes());
+				// Pad out the data attribute
+				msg.buffer[48 + len as usize..][..padding as usize].fill(0);
+				// Set the STUN data indication's length to include the data attributes new length
+				msg.set_length(28 + len + padding);
+			}
+			else { return None }
+
+			// Unauthenticated Requests
+			(Class::Request, _) if integrity.is_none() => {
 				msg.set_length(0);
 				msg.set_class(Class::Error);
 				msg.append::<ERROR_CODE, _>(&(401, "")).ok()?;
@@ -144,32 +254,25 @@ impl Server {
 				msg.append::<NONCE, _>(&TURN_NONCE).ok()?;
 			}
 
-			// Unauthorized TURN Requests
-			(Class::Request, Method::Allocate | Method::Refresh | Method::CreatePermission | Method::ChannelBind) if username != Some(&TURN_USER) => {
+			// Unauthorized Requests
+			(Class::Request, _) if username != Some(&TURN_USER) => {
 				msg.set_length(0);
 				msg.set_class(Class::Error);
 				msg.append::<ERROR_CODE, _>(&(441, "")).ok()?;
 			}
-			(Class::Request, Method::Allocate | Method::Refresh | Method::CreatePermission | Method::ChannelBind) if integrity.as_ref().is_some_and(|i| !i.verify(&TURN_KEY)) => {
+			(Class::Request, _) if integrity.as_ref().is_some_and(|i| !i.verify(&TURN_KEY)) => {
 				msg.set_length(0);
 				msg.set_class(Class::Error);
 				msg.append::<ERROR_CODE, _>(&(403, "")).ok()?;
 			}
 
-			// Stale TURN Requests
-			(Class::Request, Method::Allocate | Method::Refresh | Method::CreatePermission | Method::ChannelBind) if nonce != Some(&TURN_NONCE) => {
+			// Stale Requests
+			(Class::Request, _) if nonce != Some(&TURN_NONCE) => {
 				msg.set_length(0);
 				msg.set_class(Class::Error);
 				msg.append::<ERROR_CODE, _>(&(438, "")).ok()?;
 				msg.append::<NONCE, _>(&TURN_NONCE).ok()?;
 				msg.append::<MESSAGE_INTEGRITY, _>(&TURN_KEY).ok()?;
-			}
-
-			// Normal STUN Binding
-			(Class::Request, Method::Binding) if integrity.is_none() && username.is_none() => {
-				msg.set_length(0);
-				msg.set_class(Class::Success);
-				msg.append::<MAPPED_ADDRESS, _>(&canonical).ok()?;
 			}
 
 			// Allocate with Non-UDP Transport
@@ -215,146 +318,10 @@ impl Server {
 				msg.append::<MESSAGE_INTEGRITY, _>(&TURN_KEY).ok()?;
 			}
 
-			// Send
-			(Class::Indication, Method::Send) => if let (Some(SocketAddr::V6(_)), Some(data)) = (xor_peer, data) {
-				receiver = xor_peer.unwrap();
-				// TODO: Special handling for loopback?
-				// TODO: Special handling for ::ffff:255.255.255.255?
-
-				// Shift the data attribute to the start of the STUN packet
-				let i = data.as_ptr() as usize - 4 - msg.buffer.as_ptr() as usize;
-				let len = data.len();
-				msg.buffer.copy_within(i..i + 4 + len, 20);
-
-				let padding = (4 - len % 4) % 4;
-				msg.buffer[i + 4 + len..][..padding].fill(0);
-				msg.set_length((4 + len + padding) as u16);
-
-				msg.set_method(Method::Data);
-				msg.append::<XOR_PEER_ADDRESS, _>(&sender).ok()?;
-			} else { return None }
-
-			// Data
-			(Class::Indication, Method::Data) => {
-				let data = data?;
-				let peer = xor_peer?;
-
-				// Shift the data attribute to the start of the STUN packet
-				let i = data.as_ptr() as usize - 4 - msg.buffer.as_ptr() as usize;
-				let len = data.len();
-				msg.buffer.copy_within(i..i + 4 + len, 20);
-
-				let (inner_len, inner_receiver) = self.handle(&mut msg.buffer[24..], len, peer)?;
-				if inner_receiver != receiver {
-					// Don't support multi-hop path routing. Partially because I haven't figured that part out, and partially because I feel the amplification is a bad idea.
-					return None
-				}
-				
-				let padding = (4 - inner_len % 4) % 4;
-				msg.buffer[22..24].copy_from_slice(&(inner_len as u16).to_be_bytes());
-				msg.buffer[24 + inner_len..][..padding].fill(0);
-				msg.set_length((4 + inner_len + padding) as u16);
-
-				msg.set_method(Method::Send);
-				msg.append::<XOR_PEER_ADDRESS, _>(&peer).ok()?;
-			}
-
-			// ICE Connection Tests
-			(Class::Request, Method::Binding) => {
-				let (lufrag, _rufrag) = username.and_then(|s| s.split_once(':'))?;
-				let integrity = integrity?;
-				// fingerprint?;
-
-				// Check if the connection test is actually for us or for someone else.
-				if lufrag != self.ice_ufrag {
-					println!("not us {lufrag}");
-					// TODO: Rendezvous protocol - encapsulate the connection test and forward it to the intended recipient.
-					return None;
-				}
-
-				// Check ICE pwd
-				if !integrity.verify(&ICE_KEY) {
-					msg.set_length(0);
-					msg.set_class(Class::Error);
-					msg.append::<ERROR_CODE, _>(&(403, "")).ok()?;
-				}
-
-				// Tell clients to control the connection
-				else if ice_controlled.is_some() {
-					msg.set_length(0);
-					msg.set_class(Class::Error);
-					msg.append::<ERROR_CODE, _>(&(487, "")).ok()?;
-					msg.append::<MESSAGE_INTEGRITY, _>(&ICE_KEY).ok()?;
-				}
-
-				// Connection Tested
-				else {
-					msg.set_length(0);
-					msg.set_class(Class::Success);
-					msg.append::<XOR_MAPPED_ADDRESS, _>(&canonical).ok()?;
-					msg.append::<MESSAGE_INTEGRITY, _>(&ICE_KEY).ok()?;
-				}
-				msg.append::<FINGERPRINT, _>(&()).ok()?;
-			}
-
 			// Drop everything else:
 			_ => return None
 		}
 
 		Some(receiver)
-	}
-	pub fn handle(&mut self, buffer: &mut [u8], len: usize, sender: SocketAddr) -> Option<(usize, SocketAddr)> {
-		match buffer.first()? {
-			/* STUN */ 0..20 => {
-				// Make sure that there's enough data to read it as a STUN packet
-				if buffer.len() < 20 || len < 20 { return None }
-
-				// Check expected length against actual length
-				let mut msg = Stun::new(buffer);
-				if msg.len() != len { return None }
-
-				// Handle the message and return the result if a response address is returned
-				let receiver = self.handle_stun(&mut msg, sender)?;
-				Some((msg.len(), receiver))
-			},
-			/* DTLS */ 20..64 => {
-				// println!("dtls: {:?}", &buffer[..len]);
-
-				let mut entry = self.contexts.entry(sender);
-				let ssl = match entry {
-					Entry::Vacant(v) => {
-						let mut ssl = Ssl::new(self.acceptor.context()).unwrap();
-						ssl.set_accept_state();
-						let val = SslStream::new(ssl, Buffers::default()).unwrap();
-						v.insert(val)
-					}
-					Entry::Occupied(ref mut o) => o.get_mut()
-				};
-
-				// Push the received packet into the receive buffer
-				ssl.get_mut().recv.extend(&buffer[..len]);
-
-				match ssl.ssl_read(buffer) {
-					Ok(n) => {
-						println!("sctp: {:?}", &buffer[..n]);
-					}
-					Err(e) if matches!(e.code(), ErrorCode::WANT_WRITE | ErrorCode::WANT_READ) => {
-						let send = &mut ssl.get_mut().send;
-						let min = usize::min(buffer.len(), send.len());
-						buffer[..min].copy_from_slice(send);
-						send.clear();
-						return Some((min, sender));
-					}
-					Err(e) => {
-						println!("{e:?}");
-						self.contexts.remove(&sender);
-					}
-				}
-
-				None
-			},
-			/* TURN Channel Data */ 64..80 => None,
-			/* DROP */ _ => None,
-		}
 	}
 }
