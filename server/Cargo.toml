@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-openssl = "0.10.68"
+openssl = { version = "0.10.68", features = ["vendored"] }
 rand = "0.8.5"
 stun = { path = "../stun" }
