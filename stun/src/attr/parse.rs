@@ -8,14 +8,10 @@ pub trait AttrIter<'i>: Iterator<Item = (Prefix<'i>, u16, &'i [u8])> + Sized {
 	fn parse_with_err<'d, const T: u16, A: Attr<'i, T>>(
 		self,
 		dest: &'d mut Option<Result<A, A::Error>>,
-	) -> impl AttrIter<'i>
-	{
+	) -> impl AttrIter<'i> {
 		AttrParser::new::<'i, T, A>(self, |prefix, value| *dest = Some(A::decode(prefix, value)))
 	}
-	fn parse<'d, const T: u16, A: Attr<'i, T>> (
-		self,
-		dest: &'d mut Option<A>
-	 ) -> impl AttrIter<'i> {
+	fn parse<'d, const T: u16, A: Attr<'i, T>>(self, dest: &'d mut Option<A>) -> impl AttrIter<'i> {
 		AttrParser::new::<'i, T, A>(self, |prefix, value| *dest = A::decode(prefix, value).ok())
 	}
 
@@ -61,7 +57,7 @@ impl<I, D> AttrParser<I, D> {
 			inner,
 			typ: T,
 			must_precede: A::must_precede,
-			decode: Some(decode)
+			decode: Some(decode),
 		}
 	}
 }
@@ -77,7 +73,7 @@ impl<'i, I: Iterator<Item = (Prefix<'i>, u16, &'i [u8])>, D: FnOnce(Prefix<'i>, 
 			if let Some(func) = self.decode.take() {
 				func(prefix, value);
 			}
-			return self.next()
+			return self.next();
 		} else if (self.must_precede)(typ) {
 			self.decode.take();
 		}

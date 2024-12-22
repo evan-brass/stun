@@ -2,7 +2,7 @@
 pub struct VarIter<'i, C, I> {
 	pub buffer: &'i [u8],
 	container: core::marker::PhantomData<C>,
-	item: core::marker::PhantomData<I>
+	item: core::marker::PhantomData<I>,
 }
 #[allow(unused)]
 impl<'i, C, I> VarIter<'i, C, I> {
@@ -10,7 +10,7 @@ impl<'i, C, I> VarIter<'i, C, I> {
 		Self {
 			buffer,
 			container: core::marker::PhantomData,
-			item: core::marker::PhantomData
+			item: core::marker::PhantomData,
 		}
 	}
 }
@@ -146,7 +146,7 @@ macro_rules! spec_enum {
 			pub enum $name {
 				#[doc(hidden)]
 				Unknown = -1,
-	
+
 				$(
 					#[doc = "Defined in [" $rfc "](https://datatracker.ietf.org/doc/html/" $rfc ")"]
 					$variant = $val,

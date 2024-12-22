@@ -90,23 +90,33 @@ impl<B: BorrowMut<[u8]>> Stun<B> {
 
 		let buf = self.buffer.borrow_mut();
 		let len = buf.len();
-		
+
 		// Check if the attribute's length is too big
-		if test < attr_len { return Err(Error::NotStun) }
+		if test < attr_len {
+			return Err(Error::NotStun);
+		}
 		let test = test - attr_len;
-		
+
 		// Check if we can read the current length
-		if len < 4 { return Err(Error::TooShort(20 + 4 + attr_len as usize + padd_len as usize)) }
+		if len < 4 {
+			return Err(Error::TooShort(
+				20 + 4 + attr_len as usize + padd_len as usize,
+			));
+		}
 		let offset = u16::from_be_bytes(buf[2..4].try_into().unwrap());
 
 		// Check if the attribute is too big to exist at this offset
-		if test < offset { return Err(Error::NotStun) }
+		if test < offset {
+			return Err(Error::NotStun);
+		}
 
 		let new_length = offset + 4 + attr_len + padd_len;
 		let new_len = 20 + new_length as usize;
 
 		// Check if the buffer is big enough to contain the new attribute
-		if len < new_len { return Err(Error::TooShort(new_len)) }
+		if len < new_len {
+			return Err(Error::TooShort(new_len));
+		}
 
 		// All checks complete
 		let i = 20 + offset as usize;
@@ -123,7 +133,7 @@ impl<B: BorrowMut<[u8]>> Stun<B> {
 		let first_four = core::array::from_fn(|i| prefix[i]);
 		let prefix = Prefix {
 			first_four,
-			prefix: &prefix[4..]
+			prefix: &prefix[4..],
 		};
 
 		attr.encode(prefix, &mut rest[4..][..attr_len as usize]);

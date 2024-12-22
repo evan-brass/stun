@@ -1,5 +1,5 @@
 //! Test Vectors for STUN
-//! 
+//!
 use crate::*;
 use attr::{integrity::Integrity, parse::AttrIter};
 // use openssl::{hash::MessageDigest, pkey::PKey, sign::Signer};
@@ -40,21 +40,22 @@ fn decode_vector_2_1() {
 	assert_eq!(msg.decode(VECTOR_2_1.len()), Ok(()));
 	assert_eq!(msg.class(), Class::Request);
 	assert_eq!(msg.method(), Method::Binding);
-	
+
 	let mut software = None;
 	let mut priority = None;
 	let mut ice_controlled = None;
 	let mut username = None;
 	let mut integrity = None;
 	let mut fingerprint = None;
-	
-	let unknown: Option<[u16; 4]> = msg.into_iter()
-		.parse::<{attr::SOFTWARE}, &str>(&mut software)
-		.parse::<{attr::PRIORITY}, u32>(&mut priority)
-		.parse::<{attr::ICE_CONTROLLED}, u64>(&mut ice_controlled)
-		.parse::<{attr::USERNAME}, &str>(&mut username)
-		.parse::<{attr::MESSAGE_INTEGRITY}, Integrity<20>>(&mut integrity)
-		.parse::<{attr::FINGERPRINT}, ()>(&mut fingerprint)
+
+	let unknown: Option<[u16; 4]> = msg
+		.into_iter()
+		.parse::<{ attr::SOFTWARE }, &str>(&mut software)
+		.parse::<{ attr::PRIORITY }, u32>(&mut priority)
+		.parse::<{ attr::ICE_CONTROLLED }, u64>(&mut ice_controlled)
+		.parse::<{ attr::USERNAME }, &str>(&mut username)
+		.parse::<{ attr::MESSAGE_INTEGRITY }, Integrity<20>>(&mut integrity)
+		.parse::<{ attr::FINGERPRINT }, ()>(&mut fingerprint)
 		.collect_unknown();
 
 	assert_eq!(unknown, None);

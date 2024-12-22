@@ -14,9 +14,12 @@ impl std::error::Error for Error {}
 #[cfg(feature = "std")]
 impl From<Error> for std::io::Error {
 	fn from(value: Error) -> Self {
-		std::io::Error::new(match value {
-			Error::NotStun => std::io::ErrorKind::InvalidInput,
-			Error::TooShort(_needed) => std::io::ErrorKind::UnexpectedEof
-		}, value)
+		std::io::Error::new(
+			match value {
+				Error::NotStun => std::io::ErrorKind::InvalidInput,
+				Error::TooShort(_needed) => std::io::ErrorKind::UnexpectedEof,
+			},
+			value,
+		)
 	}
 }

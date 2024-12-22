@@ -1,10 +1,10 @@
 //! STUN is a format with a 20 byte header and a list of type-length-value attributes.
-//! 
+//!
 
 mod attrs;
-pub mod values;
 pub mod integrity;
 pub mod parse;
+pub mod values;
 
 pub trait Attr<'i, const T: u16>: Sized {
 	type Error;
@@ -13,7 +13,10 @@ pub trait Attr<'i, const T: u16>: Sized {
 
 	/// Some attributes must preced other attributes
 	fn must_precede(typ: u16) -> bool {
-		matches!(typ, MESSAGE_INTEGRITY | MESSAGE_INTEGRITY_SHA256 | FINGERPRINT)
+		matches!(
+			typ,
+			MESSAGE_INTEGRITY | MESSAGE_INTEGRITY_SHA256 | FINGERPRINT
+		)
 	}
 }
 pub trait AttrEnc<const T: u16> {

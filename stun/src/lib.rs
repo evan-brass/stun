@@ -2,11 +2,11 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 pub mod attr;
-mod stun;
 mod error;
+mod rfc8445;
 mod rfc8489;
 mod rfc8656;
-mod rfc8445;
+mod stun;
 
 #[macro_use]
 mod util;

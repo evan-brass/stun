@@ -1,7 +1,10 @@
 //! The TURN protocol
 //! We only implement part of it
 
-use crate::attr::{values::{empty_attr, numeric_attr, slice_attr, sockaddr_attr}, Attr, AttrEnc, ADDRESS_ERROR_CODE, CHANNEL_NUMBER, EVEN_PORT, RESERVATION_TOKEN};
+use crate::attr::{
+	values::{empty_attr, numeric_attr, slice_attr, sockaddr_attr},
+	Attr, AttrEnc, ADDRESS_ERROR_CODE, CHANNEL_NUMBER, EVEN_PORT, RESERVATION_TOKEN,
+};
 
 sockaddr_attr!(XOR_PEER_ADDRESS, true);
 sockaddr_attr!(XOR_RELAYED_ADDRESS, true);
@@ -29,7 +32,9 @@ impl AttrEnc<ADDRESS_ERROR_CODE> for (u8, u16, &str) {
 impl Attr<'_, CHANNEL_NUMBER> for u16 {
 	type Error = crate::rfc8489::UnexpectedLength;
 	fn decode(_: crate::attr::Prefix, value: &[u8]) -> Result<Self, Self::Error> {
-		let Some(arr) = value.first_chunk() else { return Err(crate::rfc8489::UnexpectedLength) };
+		let Some(arr) = value.first_chunk() else {
+			return Err(crate::rfc8489::UnexpectedLength);
+		};
 		Ok(u16::from_be_bytes(*arr))
 	}
 }
@@ -46,7 +51,9 @@ impl AttrEnc<CHANNEL_NUMBER> for u16 {
 impl Attr<'_, EVEN_PORT> for bool {
 	type Error = crate::rfc8489::UnexpectedLength;
 	fn decode(_: crate::attr::Prefix, value: &[u8]) -> Result<Self, Self::Error> {
-		if value.len() < 1 { return Err(crate::rfc8489::UnexpectedLength) }
+		if value.len() < 1 {
+			return Err(crate::rfc8489::UnexpectedLength);
+		}
 		Ok(value[0] & 0b10000000 != 0)
 	}
 }
@@ -61,14 +68,16 @@ impl AttrEnc<EVEN_PORT> for bool {
 
 macro_rules! weird_byte_attr {
 	($typ:ident) => {
-		impl crate::attr::Attr<'_, {crate::attr::$typ}> for u8 {
+		impl crate::attr::Attr<'_, { crate::attr::$typ }> for u8 {
 			type Error = crate::rfc8489::UnexpectedLength;
 			fn decode(_: crate::attr::Prefix, value: &[u8]) -> Result<Self, Self::Error> {
-				if value.len() < 1 { return Err(crate::rfc8489::UnexpectedLength) }
+				if value.len() < 1 {
+					return Err(crate::rfc8489::UnexpectedLength);
+				}
 				Ok(value[0])
 			}
 		}
-		impl crate::attr::AttrEnc<{crate::attr::$typ}> for u8 {
+		impl crate::attr::AttrEnc<{ crate::attr::$typ }> for u8 {
 			fn length(&self) -> u16 {
 				4
 			}
@@ -90,7 +99,9 @@ impl Attr<'_, RESERVATION_TOKEN> for [u8; 8] {
 	}
 }
 impl AttrEnc<RESERVATION_TOKEN> for [u8; 8] {
-	fn length(&self) -> u16 { 8 }
+	fn length(&self) -> u16 {
+		8
+	}
 	fn encode(&self, _: crate::attr::Prefix, value: &mut [u8]) {
 		value.copy_from_slice(self)
 	}

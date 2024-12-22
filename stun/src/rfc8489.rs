@@ -29,17 +29,18 @@ impl<const N: usize> AttrEnc<UNKNOWN_ATTRIBUTES> for [u16; N] {
 	}
 	fn encode(&self, _: Prefix, value: &mut [u8]) {
 		for (i, a) in self.iter().enumerate() {
-			if *a == 0 { break }
+			if *a == 0 {
+				break;
+			}
 			value[i * 2..][..2].copy_from_slice(&a.to_be_bytes());
 		}
 	}
 }
 
-
 #[cfg(feature = "fingerprint")]
 mod fingerprint {
-	use crc::Crc;
 	use crate::attr::{Attr, AttrEnc, FINGERPRINT};
+	use crc::Crc;
 
 	pub struct BadFingerprint;
 
@@ -50,15 +51,17 @@ mod fingerprint {
 		type Error = BadFingerprint;
 		fn decode(prefix: crate::attr::Prefix, value: &[u8]) -> Result<Self, Self::Error> {
 			let actual = u32::from_be_bytes(value.try_into().map_err(|_| BadFingerprint)?);
-	
+
 			let mut hasher = CRC.digest();
 			prefix.reduce_over_prefix(|s| hasher.update(s));
 			let expected = hasher.finalize() ^ FINGERPRINT_MAGIC;
-	
+
 			(expected == actual).then_some(()).ok_or(BadFingerprint)
 		}
-	
-		fn must_precede(_: u16) -> bool { false }
+
+		fn must_precede(_: u16) -> bool {
+			false
+		}
 	}
 	impl AttrEnc<FINGERPRINT> for () {
 		fn length(&self) -> u16 {
@@ -80,11 +83,14 @@ pub struct UnexpectedLength;
 impl<'i> Attr<'i, ERROR_CODE> for (u16, &'i str) {
 	type Error = UnexpectedLength;
 	fn decode(_: crate::attr::Prefix<'i>, value: &'i [u8]) -> Result<Self, Self::Error> {
-		if value.len() < 4 { return Err(UnexpectedLength) }
+		if value.len() < 4 {
+			return Err(UnexpectedLength);
+		}
 		let class = value[2] & 0b111;
 		let number = value[3] % 100;
 		let err_code = class as u16 * 100 + number as u16;
-		let reason = core::str::from_utf8(&value[4..]).unwrap_or("<Reason contained invalid UTF-8>");
+		let reason =
+			core::str::from_utf8(&value[4..]).unwrap_or("<Reason contained invalid UTF-8>");
 
 		Ok((err_code, reason))
 	}

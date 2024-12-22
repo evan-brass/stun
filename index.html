@@ -38,27 +38,27 @@
 	await server.setLocalDescription();
 </script>
 <script type="_module">
-const config = {
-	iceTransportPolicy: 'relay',
-	iceServers: [{
-		// urls: 'turn:stun.evan-brass.net',
-		urls: 'turn:127.0.0.1',
-		username: 'guest',
-		credential: 'password',
-	}],
-};
+	const config = {
+		iceTransportPolicy: 'relay',
+		iceServers: [{
+			// urls: 'turn:stun.evan-brass.net',
+			urls: 'turn:127.0.0.1',
+			username: 'guest',
+			credential: 'password',
+		}],
+	};
 
-const a = new RTCPeerConnection(config);
-const b = new RTCPeerConnection(config);
-a.createDataChannel('');
+	const a = new RTCPeerConnection(config);
+	const b = new RTCPeerConnection(config);
+	a.createDataChannel('');
 
-a.addEventListener('connectionstatechange', () => console.log('a', a.connectionState));
-b.addEventListener('connectionstatechange', () => console.log('b', b.connectionState));
+	a.addEventListener('connectionstatechange', () => console.log('a', a.connectionState));
+	b.addEventListener('connectionstatechange', () => console.log('b', b.connectionState));
 
-await a.setLocalDescription();
-while (a.iceGatheringState != 'complete') await new Promise(res => a.addEventListener('icegatheringstatechange', res, {once: true}));
+	await a.setLocalDescription();
+	while (a.iceGatheringState != 'complete') await new Promise(res => a.addEventListener('icegatheringstatechange', res, { once: true }));
 
-await b.setRemoteDescription(a.localDescription);
-await b.setLocalDescription();
-await a.setRemoteDescription(b.localDescription);
+	await b.setRemoteDescription(a.localDescription);
+	await b.setLocalDescription();
+	await a.setRemoteDescription(b.localDescription);
 </script>
