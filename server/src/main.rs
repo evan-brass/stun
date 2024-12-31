@@ -142,10 +142,7 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 
 	// Figure out what our ufrag is
 	let fingerprint = certificate.digest(MessageDigest::sha256())?;
-	let mut ice_ufrag = base64::encode_block(&fingerprint);
-	while ice_ufrag.ends_with('=') {
-		ice_ufrag.pop();
-	}
+	let ice_ufrag = base64::encode_block(&fingerprint);
 	println!("Our ufrag: {ice_ufrag}");
 
 	// Configure a DTLS server
