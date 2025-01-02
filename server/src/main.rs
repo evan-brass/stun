@@ -415,6 +415,10 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 								}
 								len = inner.len();
 							}
+							// Drop ~50% of connection tests because our encapsulated packets are ~40 bytes bigger then what they sent
+							else if random() {
+								continue;
+							}
 							// If the ICE test isn't addressed to us, then encapsulate it and pass it along
 							else {
 								let dst = dst_ufrag.to_owned();
