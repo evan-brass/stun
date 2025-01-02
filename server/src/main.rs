@@ -415,7 +415,7 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 								}
 								len = inner.len();
 							}
-							// Drop ~50% of connection tests because our encapsulated packets are ~40 bytes bigger then what they sent
+							// Drop ~50% of connection tests because our encapsulated packets are ~60 bytes bigger then the original
 							else if random() {
 								continue;
 							}
