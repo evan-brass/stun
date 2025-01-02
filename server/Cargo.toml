@@ -7,3 +7,4 @@ edition = "2021"
 openssl = { version = "0.10.68", features = ["vendored"] }
 rand = "0.8.5"
 stun = { path = "../stun" }
+sctp = { path = "../sctp" }

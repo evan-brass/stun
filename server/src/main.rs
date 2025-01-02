@@ -10,14 +10,15 @@ use openssl::{
 	x509::X509,
 };
 use rand::{random, thread_rng, RngCore};
+use sctp::{Chunk, Data, Init, Sack, Sctp};
 use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
-use std::io;
 use std::net::Ipv6Addr;
 use std::net::SocketAddr;
 use std::net::SocketAddrV6;
 use std::net::UdpSocket;
+use std::{io, u16};
 use std::{
 	thread::sleep,
 	time::{Duration, Instant},
@@ -41,6 +42,8 @@ struct Wrapper<'i> {
 	addr: SocketAddrV6,
 	input: VecDeque<u8>,
 	sock: &'i UdpSocket,
+	// (remote vtag, local tsn)
+	sctp_data: Option<(u32, u32)>, // Welp, Can't seem to get a mut sslref so I can't update the sctp data if it's an index so we'll put it here instead.
 }
 impl io::Read for Wrapper<'_> {
 	fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
@@ -150,7 +153,12 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 	acceptor.set_certificate(&certificate)?;
 	acceptor.set_private_key(&pkey)?;
 	acceptor.check_private_key()?;
-	acceptor.set_verify(SslVerifyMode::NONE);
+	let mut mode = SslVerifyMode::PEER;
+	mode.insert(SslVerifyMode::FAIL_IF_NO_PEER_CERT);
+	acceptor.set_verify_callback(mode, |_preverify, _cert_store| {
+		// TODO: Check certificate expiration?
+		true
+	});
 
 	// Get a slot to hold the socketaddress so that we can generate and check dtls cookies:
 	let (addr_index, generate, verify) = dtls_cookies()?;
@@ -407,8 +415,73 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 								}
 								len = inner.len();
 							}
-							// Encapsulate the connection test and send it over DTLS if we can
+							// If the ICE test isn't addressed to us, then encapsulate it and pass it along
 							else {
+								let dst = dst_ufrag.to_owned();
+								// Append a peer address attribute to identify the original source of the packet.
+								let Ok(_) =
+									inner.append::<XOR_MAPPED_ADDRESS, SocketAddr>(&sender.into())
+								else {
+									continue;
+								};
+
+								// Look for a DTLS session where base64(fingerprint(peer cert)) == dst
+								// TODO: Accelerate this using a map from pid -> socketaddr?
+								for (_addr, ssl) in clients.iter_mut() {
+									let Some(cert) = ssl.ssl().peer_certificate() else {
+										continue;
+									};
+									let Ok(print) = cert.digest(MessageDigest::sha256()) else {
+										continue;
+									};
+									let id = base64::encode_block(&print);
+									if id != dst {
+										continue;
+									}
+
+									// Get the SCTP state for this session:
+									let Some((vtag, ref mut tsn)) = ssl.get_mut().sctp_data else {
+										continue;
+									};
+
+									// Ok, start eating the old TURN packet and turning it into an SCTP packet with a single data chunk:
+									let data_len = 16 + inner.len();
+									let mut data = Data {
+										chunk: Chunk {
+											buffer: &mut buffer[32..],
+										},
+									};
+
+									// Data Chunk:
+									data.chunk.set_typ(0);
+									data.chunk.set_flags(0b111); // Unordered, begin, end
+									data.chunk.set_length(data_len as u16);
+									// TODO: Write and increment the TSN
+									data.set_tsn(*tsn);
+									*tsn = tsn.wrapping_add(1);
+									data.set_stream(0);
+									data.set_seq(42); // Unused
+									data.set_ppid(53); // PPID for Binary WebRTC messages = 53
+							// NOTE: There will never need to be padding on the data attribute because the STUN message is already padded out to 4 bytes.
+
+									// SCTP header:
+									let mut packet = Sctp {
+										buffer: &mut buffer[20..],
+									};
+									packet.set_dport(5000);
+									packet.set_sport(5000);
+									packet.set_vtag(vtag);
+									let packet_len = 12 + data_len;
+									packet.set_chksum(packet.expected_chksum(packet_len));
+
+									// TODO: Check the error
+									let _ = ssl.ssl_write(&buffer[20..][..packet_len]);
+
+									// All done, we only send to the first session:
+									break;
+								}
+
+								// Don't send a TURN STUN message, the DTLS layer handles sending the encrypted application data
 								continue;
 							}
 
@@ -440,6 +513,7 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 											addr: sender,
 											input: VecDeque::new(),
 											sock: &sock,
+											sctp_data: None,
 										},
 									) else {
 										continue;
@@ -455,7 +529,170 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 							// Read SSL data until input it wants more data
 							loop {
 								match dtls.ssl_read(&mut buffer) {
-									Ok(n) => println!("sctp {:?}", &buffer[..n]),
+									Ok(0) => {
+										println!("Connection Closed {sender}");
+										clients.remove(&sender);
+										break;
+									}
+									// SCTP packets are at least 12 bytes and my code will panic when checking the crc if n < 12
+									Ok(n) if n > 12 => {
+										println!("sctp in {:?}", &buffer[..n]);
+										let recv = Sctp {
+											buffer: &mut buffer,
+										};
+										// if recv.sport() != 5000 || recv.dport() != 5000 {
+										// 	continue;
+										// }
+										// if recv.chksum() != recv.expected_chksum(n) {
+										// 	continue;
+										// }
+
+										// Gather info for a response:
+										let mut sack = None;
+										let mut init_ack = false;
+										let mut cookie_ack = false;
+										// TODO: Heartbeat ack and such
+
+										// Work through the chunks in the SCTP packet and reply with appropriate chunks of our own (We you don't know how to allocate memory like me, this is vastly harder then it sounds *sobs* *screams* *inflicts self torture*):
+										let mut offset = 12;
+										while offset + 4 <= n {
+											let chunk = Chunk {
+												buffer: &mut buffer[offset..],
+											};
+											if chunk.length() < 4 {
+												break;
+											}
+											offset += chunk.length() as usize;
+											match chunk.typ() {
+												// Data Chunk
+												0 if chunk.length() >= 16 => {
+													let data = Data { chunk };
+													if sack.is_none_or(|cumtsn| cumtsn < data.tsn())
+													{
+														sack = Some(data.tsn());
+													}
+													println!(
+														"- data: {} {} {:?}",
+														data.stream(),
+														data.ppid(),
+														&data.chunk.buffer
+															[16..data.chunk.length() as usize]
+													);
+												}
+												// Init Chunk
+												1 if chunk.length() >= 20 => {
+													let tsn = random();
+													let init = Init { chunk };
+													dtls.get_mut().sctp_data =
+														Some((init.vtag(), tsn));
+													init_ack = true;
+
+													println!(
+														"- init: {} {}",
+														init.vtag(),
+														init.tsn()
+													);
+
+													// TODO: Write an initack chunk
+												}
+												// Selective Acknowledgements
+												3 if chunk.length() >= 16 => {
+													let sack = Sack { chunk };
+													let Some((_, ref mut tsn)) =
+														dtls.get_mut().sctp_data
+													else {
+														continue;
+													};
+													*tsn = sack.cum_tsn().wrapping_add(1);
+												}
+												// Cookie Chunk
+												10 => {
+													cookie_ack = true;
+												}
+												_ => {
+													// Unknown Chunk
+													println!(
+														"- chunk {} {} {}",
+														chunk.typ(),
+														chunk.flags(),
+														chunk.length()
+													);
+												}
+											}
+										}
+
+										// Construct + write the response packet
+										let Some((rvtag, tsn)) = dtls.get_mut().sctp_data else {
+											continue;
+										};
+
+										// Check if we need to acknowledge an init:
+										let mut ret_len = 12;
+										if init_ack {
+											let mut ack = Init {
+												chunk: Chunk {
+													buffer: &mut buffer[ret_len..],
+												},
+											};
+											ack.chunk.set_typ(2);
+											ack.chunk.set_flags(0);
+											ack.chunk.set_length(24);
+											ack.set_vtag(random());
+											ack.set_arwnd(6000);
+											ack.set_num_in(u16::MAX);
+											ack.set_num_out(u16::MAX);
+											ack.set_tsn(tsn);
+											ret_len += 24;
+											// Set the Cookie parameter thing (zero length cus fuck that mechanism):
+											ack.chunk.buffer[20..22]
+												.copy_from_slice(&7u16.to_be_bytes());
+											ack.chunk.buffer[22..24]
+												.copy_from_slice(&4u16.to_be_bytes());
+										}
+
+										// Check if we need to ack a cookie
+										if cookie_ack {
+											let mut ack = Chunk {
+												buffer: &mut buffer[ret_len..],
+											};
+											ack.set_typ(11);
+											ack.set_flags(0);
+											ack.set_length(4);
+											ret_len += 4;
+										}
+
+										// Check if we need to acknowledge any data messages
+										if let Some(cum_tsn) = sack {
+											let mut ack = Sack {
+												chunk: Chunk {
+													buffer: &mut buffer[ret_len..],
+												},
+											};
+											ack.chunk.set_typ(3);
+											ack.chunk.set_flags(0);
+											ack.chunk.set_length(16);
+											ack.set_cum_tsn(cum_tsn);
+											ack.set_arwnd(6000);
+											ack.set_gaps(0);
+											ack.set_dups(0);
+											ret_len += 16;
+										}
+
+										// If we any chunks then send an SCTP packet:
+										if ret_len > 12 {
+											let mut ret = Sctp {
+												buffer: &mut buffer,
+											};
+											ret.set_sport(5000);
+											ret.set_dport(5000);
+											ret.set_vtag(rvtag);
+											ret.set_chksum(ret.expected_chksum(ret_len));
+
+											let ret = &buffer[..ret_len];
+											println!("sctp out {ret:?}");
+											let _ = dtls.ssl_write(ret);
+										}
+									}
 									Err(e) => {
 										// Delete the DTLS context:
 										if e.code() != ErrorCode::WANT_READ {
@@ -464,6 +701,7 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 										}
 										break;
 									}
+									_ => {}
 								}
 							}
 

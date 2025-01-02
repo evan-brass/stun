@@ -36,6 +36,8 @@
 		].join('\n')
 	});
 	await server.setLocalDescription();
+	const dc = server.createDataChannel('', { id: 0, negotiated: true });
+	dc.addEventListener('open', console.log);
 </script>
 <script type="_module">
 	const config = {
