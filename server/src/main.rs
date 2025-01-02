@@ -14,7 +14,7 @@ use sctp::{Chunk, Data, Init, Sack, Sctp};
 use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
-use std::net::Ipv6Addr;
+use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::net::SocketAddrV6;
 use std::net::UdpSocket;
@@ -26,7 +26,7 @@ use std::{
 
 use stun::{attr::integrity::Integrity, attr::parse::AttrIter as _, attr::*, Class, Method, Stun};
 
-const HOSTED: SocketAddrV6 = SocketAddrV6::new(Ipv6Addr::LOCALHOST, 3478, 0, 0);
+const HOSTED: SocketAddrV6 = SocketAddrV6::new(Ipv4Addr::LOCALHOST.to_ipv6_mapped(), 3478, 0, 0);
 
 fn send(sock: &UdpSocket, buf: &[u8], receiver: SocketAddrV6) -> io::Result<usize> {
 	// Send the message:
@@ -533,23 +533,17 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 							// Read SSL data until input it wants more data
 							loop {
 								match dtls.ssl_read(&mut buffer) {
-									Ok(0) => {
-										println!("Connection Closed {sender}");
-										clients.remove(&sender);
-										break;
-									}
 									// SCTP packets are at least 12 bytes and my code will panic when checking the crc if n < 12
 									Ok(n) if n > 12 => {
-										println!("sctp in {:?}", &buffer[..n]);
 										let recv = Sctp {
 											buffer: &mut buffer,
 										};
-										// if recv.sport() != 5000 || recv.dport() != 5000 {
-										// 	continue;
-										// }
-										// if recv.chksum() != recv.expected_chksum(n) {
-										// 	continue;
-										// }
+										if recv.sport() != 5000 || recv.dport() != 5000 {
+											continue;
+										}
+										if recv.chksum() != recv.expected_chksum(n) {
+											continue;
+										}
 
 										// Gather info for a response:
 										let mut sack = None;
@@ -590,14 +584,6 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 													dtls.get_mut().sctp_data =
 														Some((init.vtag(), tsn));
 													init_ack = true;
-
-													println!(
-														"- init: {} {}",
-														init.vtag(),
-														init.tsn()
-													);
-
-													// TODO: Write an initack chunk
 												}
 												// Selective Acknowledgements
 												3 if chunk.length() >= 16 => {
@@ -616,7 +602,7 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 												_ => {
 													// Unknown Chunk
 													println!(
-														"- chunk {} {} {}",
+														"unknown sctp chunk {} {} {}",
 														chunk.typ(),
 														chunk.flags(),
 														chunk.length()
@@ -693,18 +679,18 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 											ret.set_chksum(ret.expected_chksum(ret_len));
 
 											let ret = &buffer[..ret_len];
-											println!("sctp out {ret:?}");
 											let _ = dtls.ssl_write(ret);
 										}
 									}
-									Err(e) => {
-										// Delete the DTLS context:
-										if e.code() != ErrorCode::WANT_READ {
-											println!("Client closed: {e}");
-											clients.remove(&sender);
-										}
+									// Handle want read
+									Err(e) if e.code() == ErrorCode::WANT_READ => break,
+									// Handle any dtls close
+									Ok(0) | Err(_) => {
+										println!("DTLS closed.");
+										clients.remove(&sender);
 										break;
 									}
+									// Short SCTP packets?
 									_ => {}
 								}
 							}

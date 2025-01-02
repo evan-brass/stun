@@ -24,13 +24,14 @@
 				`a=fingerprint:sha-256 ${fingerprint}`,
 				`a=ice-ufrag:${ufrag}`,
 				'a=ice-pwd:the/ice/password/constant',
-				// 'a=ice-lite',
+				'a=ice-lite',
 				'm=application 1 UDP/DTLS/SCTP webrtc-datachannel',
 				'c=IN IP4 0.0.0.0',
 				'a=mid:dc',
+				'a=candidate:v6 1 udp 42 ::ffff:127.0.0.1 3478 typ host',
 				// 'a=candidate:v6 1 udp 42 2600:1900:4041:7f1:: 3478 typ host',
 				// 'a=candidate:v4 1 udp 42 35.227.165.49 3478 typ host',
-				'a=candidate:v6 1 udp 42 ::1 3478 typ host',
+				// 'a=candidate:v6 1 udp 42 ::1 3478 typ host',
 				// 'a=candidate:v4 1 udp 42 127.0.0.1 3478 typ host',
 				'a=setup:passive',
 				'a=sctp-port:5000',
@@ -41,6 +42,7 @@
 
 	// Connect to the server:
 	await server.setRemoteDescription(offer('C3:E4:A4:B9:DD:56:08:7E:A6:15:5E:F7:EB:0F:BD:24:EB:C4:D4:AD:92:33:91:31:F4:37:3E:C5:57:44:11:D5'));
+	// await server.setRemoteDescription(offer('6C:D3:E3:87:CB:75:68:5D:45:1A:C7:E7:08:30:C5:85:30:3A:DE:48:FB:5D:37:B1:20:5D:F0:85:D7:D0:59:EE'));
 	await server.setLocalDescription();
 	const dc = server.createDataChannel('', { id: 0, negotiated: true });
 	dc.addEventListener('message', console.log);
