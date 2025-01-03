@@ -178,6 +178,10 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 	acceptor.set_cookie_verify_cb(verify);
 	let acceptor = acceptor.build();
 
+	// Cleanup stuff
+	let mut last_cleanup = Instant::now();
+
+	// Network stuff
 	let sock = UdpSocket::bind("[::]:3478")?;
 	let mut buffer = [0; 2048];
 	let dtls_mtu = buffer.len() - 20 - 4 - 24; // dtls is always encapsulated inside TURN so...
@@ -190,6 +194,14 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 		let (len, SocketAddr::V6(sender)) = sock.recv_from(&mut buffer)? else {
 			continue;
 		};
+
+		// Perform a cleanup every 2 min:
+		if last_cleanup.elapsed().as_secs() > 60 * 2 {
+			last_cleanup = Instant::now();
+			// Iterate through the connections and drop any that haven't received data in 4 min
+			connections.retain_mut(|ctx| ctx.get_ref().last_recv.elapsed().as_secs() < 4 * 60);
+		}
+
 		let mut msg = Stun::new(buffer.as_mut_slice());
 		if msg.len() != len {
 			continue;
@@ -430,10 +442,6 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 								}
 								len = inner.len();
 							}
-							// Drop ~50% of connection tests because our encapsulated packets are ~60 bytes bigger then the original
-							else if random() {
-								continue;
-							}
 							// If the ICE test isn't addressed to us, then encapsulate it and pass it along
 							else {
 								// Look for a DTLS session where base64(fingerprint(peer cert)) == dst
@@ -574,6 +582,7 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 										}
 
 										let wrapper = context.get_mut();
+										wrapper.last_recv = Instant::now();
 
 										let recv = Sctp {
 											buffer: &mut buffer,
