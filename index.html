@@ -24,7 +24,7 @@
 				`a=fingerprint:sha-256 ${fingerprint}`,
 				`a=ice-ufrag:${ufrag}`,
 				'a=ice-pwd:the/ice/password/constant',
-				'a=ice-lite',
+				// 'a=ice-lite',
 				'm=application 1 UDP/DTLS/SCTP webrtc-datachannel',
 				'c=IN IP4 0.0.0.0',
 				'a=mid:dc',
@@ -45,7 +45,10 @@
 	// await server.setRemoteDescription(offer('6C:D3:E3:87:CB:75:68:5D:45:1A:C7:E7:08:30:C5:85:30:3A:DE:48:FB:5D:37:B1:20:5D:F0:85:D7:D0:59:EE'));
 	await server.setLocalDescription();
 	const dc = server.createDataChannel('', { id: 0, negotiated: true });
+	dc.binaryType = "arraybuffer";
 	dc.addEventListener('message', console.log);
+	dc.addEventListener('open', console.log);
+	dc.addEventListener('close', console.log);
 
 	// Pull our identity
 	const { 1: fingerprint } = /a=fingerprint:sha-256 ([0-9a-f:]+)/img.exec(server.localDescription.sdp);
@@ -53,7 +56,7 @@
 
 	// Demonstate client connection:
 	const client = new RTCPeerConnection(config);
-	await client.setRemoteDescription(offer(fingerprint))
+	await client.setRemoteDescription(offer(fingerprint));
 	await client.setLocalDescription();
 </script>
 <script type="_module">

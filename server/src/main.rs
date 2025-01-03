@@ -11,14 +11,12 @@ use openssl::{
 };
 use rand::{random, thread_rng, RngCore};
 use sctp::{Chunk, Data, Init, Sack, Sctp};
-use std::collections::btree_map::Entry;
-use std::collections::BTreeMap;
 use std::collections::VecDeque;
+use std::io;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::net::SocketAddrV6;
 use std::net::UdpSocket;
-use std::{io, u16};
 use std::{
 	thread::sleep,
 	time::{Duration, Instant},
@@ -26,6 +24,7 @@ use std::{
 
 use stun::{attr::integrity::Integrity, attr::parse::AttrIter as _, attr::*, Class, Method, Stun};
 
+// So, Firefox doesn't like localhost addresses, but they seem to have forgot about mapped.
 const HOSTED: SocketAddrV6 = SocketAddrV6::new(Ipv4Addr::LOCALHOST.to_ipv6_mapped(), 3478, 0, 0);
 
 fn send(sock: &UdpSocket, buf: &[u8], receiver: SocketAddrV6) -> io::Result<usize> {
@@ -39,11 +38,24 @@ fn send(sock: &UdpSocket, buf: &[u8], receiver: SocketAddrV6) -> io::Result<usiz
 }
 
 struct Wrapper<'i> {
+	// Used to clear old connections
+	#[allow(unused)] // TODO: Cleanup Contexts if they haven't received data in a few minutes
+	last_recv: Instant,
+
+	// ufrag mapping of the peer's certificate
+	pid: Option<String>,
+
+	// Address of the peer
 	addr: SocketAddrV6,
+
+	// 1 packet of recv data yet to be read by openssl
 	input: VecDeque<u8>,
+
+	// Handle to the UdpSocket so we can implement write on Wrapper
 	sock: &'i UdpSocket,
-	// (remote vtag, local tsn)
-	sctp_data: Option<(u32, u32)>, // Welp, Can't seem to get a mut sslref so I can't update the sctp data if it's an index so we'll put it here instead.
+
+	// Minimum required SCTP data (remote vtag, local tsn)
+	sctp_data: Option<(u32, u32)>,
 }
 impl io::Read for Wrapper<'_> {
 	fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
@@ -168,8 +180,11 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 
 	let sock = UdpSocket::bind("[::]:3478")?;
 	let mut buffer = [0; 2048];
+	let dtls_mtu = buffer.len() - 20 - 4 - 24; // dtls is always encapsulated inside TURN so...
 
-	let mut clients: BTreeMap<SocketAddrV6, SslStream<Wrapper<'_>>> = BTreeMap::new();
+	// Connections sorted by socket address
+	let mut connections: Vec<SslStream<Wrapper<'_>>> = Vec::new();
+	// TODO: Add a second vec sorted by pid to accelerate forwarding
 
 	loop {
 		let (len, SocketAddr::V6(sender)) = sock.recv_from(&mut buffer)? else {
@@ -421,69 +436,61 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 							}
 							// If the ICE test isn't addressed to us, then encapsulate it and pass it along
 							else {
-								let dst = dst_ufrag.to_owned();
-								// Append a peer address attribute to identify the original source of the packet.
+								// Look for a DTLS session where base64(fingerprint(peer cert)) == dst
+								// TODO: Accelerate this using a map from pid -> context?
+								let Some(context) = connections.iter_mut().find(|context| {
+									context
+										.get_ref()
+										.pid
+										.as_ref()
+										.is_some_and(|pid| pid == dst_ufrag)
+								}) else {
+									continue;
+								};
+								// Get the SCTP state for this session:
+								let Some((vtag, ref mut tsn)) = context.get_mut().sctp_data else {
+									continue;
+								};
+
+								// Append the peer address to the inner packet:
 								let Ok(_) =
-									inner.append::<XOR_MAPPED_ADDRESS, SocketAddr>(&sender.into())
+									inner.append::<XOR_PEER_ADDRESS, SocketAddr>(&sender.into())
 								else {
 									continue;
 								};
 
-								// Look for a DTLS session where base64(fingerprint(peer cert)) == dst
-								// TODO: Accelerate this using a map from pid -> socketaddr?
-								for (_addr, ssl) in clients.iter_mut() {
-									let Some(cert) = ssl.ssl().peer_certificate() else {
-										continue;
-									};
-									let Ok(print) = cert.digest(MessageDigest::sha256()) else {
-										continue;
-									};
-									let id = base64::encode_block(&print);
-									if id != dst {
-										continue;
-									}
+								// Ok, start eating the old TURN packet and turning it into an SCTP packet with a single data chunk:
+								// NOTE: There's no copy into the DATA chunk, because the STUN data is already there, we just wrap that data chunk around the existing packet
+								let data_len = 16 + inner.len();
+								let mut data = Data {
+									chunk: Chunk {
+										buffer: &mut buffer[32..],
+									},
+								};
 
-									// Get the SCTP state for this session:
-									let Some((vtag, ref mut tsn)) = ssl.get_mut().sctp_data else {
-										continue;
-									};
+								// Data Chunk:
+								data.chunk.set_typ(0);
+								data.chunk.set_flags(0b111); // Unordered, begin, end
+								data.chunk.set_length(data_len as u16);
+								// TODO: Write and increment the TSN
+								data.set_tsn(*tsn);
+								*tsn = tsn.wrapping_add(1);
+								data.set_stream(0);
+								data.set_seq(42); // Unused
+								data.set_ppid(53); // PPID for Binary WebRTC messages = 53
 
-									// Ok, start eating the old TURN packet and turning it into an SCTP packet with a single data chunk:
-									let data_len = 16 + inner.len();
-									let mut data = Data {
-										chunk: Chunk {
-											buffer: &mut buffer[32..],
-										},
-									};
+								// SCTP header:
+								let mut packet = Sctp {
+									buffer: &mut buffer[20..],
+								};
+								packet.set_dport(5000);
+								packet.set_sport(5000);
+								packet.set_vtag(vtag);
+								let packet_len = 12 + data_len;
+								packet.set_chksum(packet.expected_chksum(packet_len));
 
-									// Data Chunk:
-									data.chunk.set_typ(0);
-									data.chunk.set_flags(0b111); // Unordered, begin, end
-									data.chunk.set_length(data_len as u16);
-									// TODO: Write and increment the TSN
-									data.set_tsn(*tsn);
-									*tsn = tsn.wrapping_add(1);
-									data.set_stream(0);
-									data.set_seq(42); // Unused
-									data.set_ppid(53); // PPID for Binary WebRTC messages = 53
-							// NOTE: There will never need to be padding on the data attribute because the STUN message is already padded out to 4 bytes.
-
-									// SCTP header:
-									let mut packet = Sctp {
-										buffer: &mut buffer[20..],
-									};
-									packet.set_dport(5000);
-									packet.set_sport(5000);
-									packet.set_vtag(vtag);
-									let packet_len = 12 + data_len;
-									packet.set_chksum(packet.expected_chksum(packet_len));
-
-									// TODO: Check the error
-									let _ = ssl.ssl_write(&buffer[20..][..packet_len]);
-
-									// All done, we only send to the first session:
-									break;
-								}
+								// TODO: Check the error
+								let _ = context.ssl_write(&buffer[20..][..packet_len]);
 
 								// Don't send a TURN STUN message, the DTLS layer handles sending the encrypted application data
 								continue;
@@ -500,41 +507,74 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 
 						// Hosted DTLS
 						(HOSTED, Some(20..64)) => {
-							// Get / Insert into the map of clients
-							let entry = clients.entry(sender);
-							let dtls = match entry {
-								Entry::Vacant(v) => {
-									// Create a new DTLS session that
+							// Look for the DTLS context
+							let loc =
+								connections.binary_search_by_key(&sender, |s| s.get_ref().addr);
+							let i = loc.unwrap_or_else(|i| i);
+							let context = match loc {
+								// Connection doesn't exist - create it
+								Err(i) if connections.try_reserve(1).is_ok() => {
 									let Ok(mut ssl) = Ssl::new(acceptor.context()) else {
 										continue;
 									};
-									// Yes, we have to set the sender in two places: just to frickin check DTLS cookies.
+									let mut input = VecDeque::new();
+									let Ok(_) = input.try_reserve_exact(dtls_mtu) else {
+										continue;
+									};
 									ssl.set_ex_data(addr_index, sender);
 									ssl.set_accept_state();
-									let Ok(dtls) = SslStream::new(
+									let Ok(context) = SslStream::new(
 										ssl,
 										Wrapper {
 											addr: sender,
-											input: VecDeque::new(),
+											input,
+											last_recv: Instant::now(),
+											pid: None,
 											sock: &sock,
 											sctp_data: None,
 										},
 									) else {
 										continue;
 									};
-									v.insert(dtls)
+
+									// Good, insert the new connection
+									connections.insert(i, context);
+									&mut connections[i]
 								}
-								Entry::Occupied(o) => o.into_mut(),
+								// Connection already exists
+								Ok(i) => &mut connections[i],
+								_ => continue,
 							};
 
-							// Copy the data into the input buffer:
-							dtls.get_mut().input.extend(data.iter().copied());
+							// Copy the packet into the recv buffer:
+							context.get_mut().input.extend(data.iter().cloned());
 
-							// Read SSL data until input it wants more data
+							// Read SSL data until it wants more data, then clear the input just to be sure
 							loop {
-								match dtls.ssl_read(&mut buffer) {
+								match context.ssl_read(&mut buffer) {
 									// SCTP packets are at least 12 bytes and my code will panic when checking the crc if n < 12
 									Ok(n) if n > 12 => {
+										// Update the pid if needed:
+										if context.get_ref().pid.is_none() {
+											let Some(peer_cert) = context.ssl().peer_certificate()
+											else {
+												connections.remove(i);
+												break;
+											};
+											let Ok(print) =
+												peer_cert.digest(MessageDigest::sha256())
+											else {
+												connections.remove(i);
+												break;
+											};
+											// TODO: Handle allocation failure when base64 encoding?
+											let pid = base64::encode_block(&print);
+											println!("Connected: {pid}");
+											context.get_mut().pid = Some(pid);
+										}
+
+										let wrapper = context.get_mut();
+
 										let recv = Sctp {
 											buffer: &mut buffer,
 										};
@@ -570,7 +610,7 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 														sack = Some(data.tsn());
 													}
 													println!(
-														"- data: {} {} {:?}",
+														"sctp data: {} {} {:?}",
 														data.stream(),
 														data.ppid(),
 														&data.chunk.buffer
@@ -581,15 +621,13 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 												1 if chunk.length() >= 20 => {
 													let tsn = random();
 													let init = Init { chunk };
-													dtls.get_mut().sctp_data =
-														Some((init.vtag(), tsn));
+													wrapper.sctp_data = Some((init.vtag(), tsn));
 													init_ack = true;
 												}
 												// Selective Acknowledgements
 												3 if chunk.length() >= 16 => {
 													let sack = Sack { chunk };
-													let Some((_, ref mut tsn)) =
-														dtls.get_mut().sctp_data
+													let Some((_, ref mut tsn)) = wrapper.sctp_data
 													else {
 														continue;
 													};
@@ -599,6 +637,9 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 												10 => {
 													cookie_ack = true;
 												}
+												// Heartbeat request (We just drop them)
+												4 => {}
+												// Print unrecognized chunks
 												_ => {
 													// Unknown Chunk
 													println!(
@@ -612,7 +653,7 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 										}
 
 										// Construct + write the response packet
-										let Some((rvtag, tsn)) = dtls.get_mut().sctp_data else {
+										let Some((rvtag, tsn)) = wrapper.sctp_data else {
 											continue;
 										};
 
@@ -679,15 +720,15 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 											ret.set_chksum(ret.expected_chksum(ret_len));
 
 											let ret = &buffer[..ret_len];
-											let _ = dtls.ssl_write(ret);
+											let _ = context.ssl_write(ret);
 										}
 									}
 									// Handle want read
 									Err(e) if e.code() == ErrorCode::WANT_READ => break,
 									// Handle any dtls close
 									Ok(0) | Err(_) => {
-										println!("DTLS closed.");
-										clients.remove(&sender);
+										println!("Disconnected: {:?}", context.get_ref().pid);
+										connections.remove(i);
 										break;
 									}
 									// Short SCTP packets?
