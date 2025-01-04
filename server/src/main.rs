@@ -29,7 +29,7 @@ const B62_CHARSET: &[char] = &[
 ];
 fn to_base62(fingerprint: &mut [u8]) -> Option<String> {
 	let mut res = [0; 43];
-	for j in 0..43 {
+	for j in (0..43).rev() {
 		let mut remainder = 0;
 		for i in 0..32 {
 			let v = 256 * remainder + fingerprint[i] as u32;
@@ -38,7 +38,6 @@ fn to_base62(fingerprint: &mut [u8]) -> Option<String> {
 		}
 		res[j] = remainder as u8;
 	}
-	res.reverse();
 
 	let mut ret = String::new();
 	ret.try_reserve(43).ok()?;
@@ -58,8 +57,7 @@ fn to_base62(fingerprint: &mut [u8]) -> Option<String> {
 
 use stun::{attr::integrity::Integrity, attr::parse::AttrIter as _, attr::*, Class, Method, Stun};
 
-// So, Firefox doesn't like localhost addresses, but they seem to have forgot about mapped.
-const HOSTED: SocketAddrV6 = SocketAddrV6::new(Ipv4Addr::LOCALHOST.to_ipv6_mapped(), 3478, 0, 0);
+const HOSTED: SocketAddrV6 = SocketAddrV6::new(Ipv4Addr::BROADCAST.to_ipv6_mapped(), 3478, 0, 0);
 
 fn send(sock: &UdpSocket, buf: &[u8], receiver: SocketAddrV6) -> io::Result<usize> {
 	// Send the message:
@@ -609,7 +607,6 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 												connections.remove(i);
 												break;
 											};
-											// TODO: Handle allocation failure when base64 encoding?
 											let Some(pid) = to_base62(&mut fingerprint) else {
 												connections.remove(i);
 												break;
@@ -646,22 +643,45 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 											if chunk.length() < 4 {
 												break;
 											}
+
+											// Check that the chunk fits within the data we've received
 											offset += chunk.length() as usize;
+											if offset > n {
+												break;
+											}
+
+											// Handle the chunk:
 											match chunk.typ() {
 												// Data Chunk
 												0 if chunk.length() >= 16 => {
 													let data = Data { chunk };
+
+													// Update our cumtsn to acknowledge this data (if needed)
 													if sack.is_none_or(|cumtsn| cumtsn < data.tsn())
 													{
 														sack = Some(data.tsn());
 													}
-													println!(
-														"sctp data: {} {} {:?}",
-														data.stream(),
-														data.ppid(),
-														&data.chunk.buffer
-															[16..data.chunk.length() as usize]
-													);
+
+													// Print the data to the logs:
+													let bytes = &data.chunk.buffer
+														[16..data.chunk.length() as usize];
+													if let Ok(s) = std::str::from_utf8(bytes) {
+														println!(
+															"peer data {:?} {} {}: {:?}",
+															wrapper.pid,
+															data.stream(),
+															data.ppid(),
+															s
+														)
+													} else {
+														println!(
+															"peer data {:?} {} {}: {:?}",
+															wrapper.pid,
+															data.stream(),
+															data.ppid(),
+															bytes
+														)
+													}
 												}
 												// Init Chunk
 												1 if chunk.length() >= 20 => {
