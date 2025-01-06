@@ -3,6 +3,11 @@ use crc::Crc;
 pub struct Sctp<B> {
 	pub buffer: B,
 }
+impl Sctp<()> {
+	pub const fn min_len() -> usize {
+		12
+	}
+}
 impl<B: AsRef<[u8]>> Sctp<B> {
 	pub fn sport(&self) -> u16 {
 		u16::from_be_bytes(self.buffer.as_ref()[0..2].try_into().unwrap())
@@ -44,6 +49,11 @@ impl<B: AsMut<[u8]>> Sctp<B> {
 pub struct Chunk<B> {
 	pub buffer: B,
 }
+impl Chunk<()> {
+	pub const fn min_len() -> usize {
+		4
+	}
+}
 impl<B: AsRef<[u8]>> Chunk<B> {
 	pub fn typ(&self) -> u8 {
 		self.buffer.as_ref()[0]
@@ -53,6 +63,10 @@ impl<B: AsRef<[u8]>> Chunk<B> {
 	}
 	pub fn length(&self) -> u16 {
 		u16::from_be_bytes(self.buffer.as_ref()[2..4].try_into().unwrap())
+	}
+
+	pub fn len(&self) -> usize {
+		self.length() as usize
 	}
 }
 impl<B: AsMut<[u8]>> Chunk<B> {
@@ -67,8 +81,42 @@ impl<B: AsMut<[u8]>> Chunk<B> {
 	}
 }
 
+pub struct Param<B> {
+	pub buffer: B,
+}
+impl Param<()> {
+	pub const fn min_len() -> usize {
+		4
+	}
+}
+impl<B: AsRef<[u8]>> Param<B> {
+	pub fn typ(&self) -> u16 {
+		u16::from_be_bytes(self.buffer.as_ref()[0..2].try_into().unwrap())
+	}
+	pub fn length(&self) -> u16 {
+		u16::from_be_bytes(self.buffer.as_ref()[2..4].try_into().unwrap())
+	}
+
+	pub fn len(&self) -> usize {
+		self.length() as usize
+	}
+}
+impl<B: AsMut<[u8]>> Param<B> {
+	pub fn set_typ(&mut self, val: u16) {
+		self.buffer.as_mut()[0..2].copy_from_slice(&val.to_be_bytes());
+	}
+	pub fn set_length(&mut self, val: u16) {
+		self.buffer.as_mut()[2..4].copy_from_slice(&val.to_be_bytes());
+	}
+}
+
 pub struct Data<B> {
 	pub chunk: Chunk<B>,
+}
+impl Data<()> {
+	pub const fn min_len() -> usize {
+		16
+	}
 }
 impl<B: AsRef<[u8]>> Data<B> {
 	pub fn tsn(&self) -> u32 {
@@ -101,6 +149,11 @@ impl<B: AsMut<[u8]>> Data<B> {
 
 pub struct Init<B> {
 	pub chunk: Chunk<B>,
+}
+impl Init<()> {
+	pub const fn min_len() -> usize {
+		20
+	}
 }
 impl<B: AsRef<[u8]>> Init<B> {
 	pub fn vtag(&self) -> u32 {
@@ -139,6 +192,11 @@ impl<B: AsMut<[u8]>> Init<B> {
 
 pub struct Sack<B> {
 	pub chunk: Chunk<B>,
+}
+impl Sack<()> {
+	pub const fn min_len() -> usize {
+		16
+	}
 }
 impl<B: AsRef<[u8]>> Sack<B> {
 	pub fn cum_tsn(&self) -> u32 {

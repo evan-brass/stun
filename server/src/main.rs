@@ -9,7 +9,7 @@ use openssl::{
 	x509::X509,
 };
 use rand::{random, thread_rng, RngCore};
-use sctp::{Chunk, Data, Init, Sack, Sctp};
+use sctp::{Chunk, Data, Init, Param, Sack, Sctp};
 use std::collections::VecDeque;
 use std::io;
 use std::net::Ipv4Addr;
@@ -636,16 +636,16 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 
 										// Work through the chunks in the SCTP packet and reply with appropriate chunks of our own (We you don't know how to allocate memory like me, this is vastly harder then it sounds *sobs* *screams* *inflicts self torture*):
 										let mut offset = 12;
-										while offset + 4 <= n {
+										while offset + Chunk::min_len() <= n {
 											let chunk = Chunk {
 												buffer: &mut buffer[offset..],
 											};
-											if chunk.length() < 4 {
+											if chunk.len() < Chunk::min_len() {
 												break;
 											}
 
 											// Check that the chunk fits within the data we've received
-											offset += chunk.length() as usize;
+											offset += chunk.len();
 											if offset > n {
 												break;
 											}
@@ -653,7 +653,7 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 											// Handle the chunk:
 											match chunk.typ() {
 												// Data Chunk
-												0 if chunk.length() >= 16 => {
+												0 if chunk.len() >= Data::min_len() => {
 													let data = Data { chunk };
 
 													// Update our cumtsn to acknowledge this data (if needed)
@@ -684,14 +684,14 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 													}
 												}
 												// Init Chunk
-												1 if chunk.length() >= 20 => {
+												1 if chunk.len() >= Init::min_len() => {
 													let tsn = random();
 													let init = Init { chunk };
 													wrapper.sctp_data = Some((init.vtag(), tsn));
 													init_ack = true;
 												}
 												// Selective Acknowledgements
-												3 if chunk.length() >= 16 => {
+												3 if chunk.len() >= Sack::min_len() => {
 													let sack = Sack { chunk };
 													let Some((_, ref mut tsn)) = wrapper.sctp_data
 													else {
@@ -724,7 +724,7 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 										};
 
 										// Check if we need to acknowledge an init:
-										let mut ret_len = 12;
+										let mut ret_len = Sctp::min_len();
 										if init_ack {
 											let mut ack = Init {
 												chunk: Chunk {
@@ -733,18 +733,23 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 											};
 											ack.chunk.set_typ(2);
 											ack.chunk.set_flags(0);
-											ack.chunk.set_length(24);
+											ack.chunk.set_length(
+												(Init::min_len() + Param::min_len()) as u16,
+											);
 											ack.set_vtag(random());
 											ack.set_arwnd(6000);
 											ack.set_num_in(u16::MAX);
 											ack.set_num_out(u16::MAX);
 											ack.set_tsn(tsn);
-											ret_len += 24;
+
 											// Set the Cookie parameter thing (zero length cus fuck that mechanism):
-											ack.chunk.buffer[20..22]
-												.copy_from_slice(&7u16.to_be_bytes());
-											ack.chunk.buffer[22..24]
-												.copy_from_slice(&4u16.to_be_bytes());
+											let mut cookie = Param {
+												buffer: &mut ack.chunk.buffer[Init::min_len()..],
+											};
+											cookie.set_typ(7);
+											cookie.set_length(Param::min_len() as u16);
+
+											ret_len += ack.chunk.len();
 										}
 
 										// Check if we need to ack a cookie
@@ -755,7 +760,8 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 											ack.set_typ(11);
 											ack.set_flags(0);
 											ack.set_length(4);
-											ret_len += 4;
+
+											ret_len += ack.len();
 										}
 
 										// Check if we need to acknowledge any data messages
@@ -772,7 +778,8 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 											ack.set_arwnd(6000);
 											ack.set_gaps(0);
 											ack.set_dups(0);
-											ret_len += 16;
+
+											ret_len += ack.chunk.len();
 										}
 
 										// If we any chunks then send an SCTP packet:
