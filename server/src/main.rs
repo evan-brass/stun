@@ -77,8 +77,11 @@ struct Wrapper<'i> {
 	// ufrag mapping of the peer's certificate
 	pid: Option<String>,
 
-	// Address of the peer
-	addr: SocketAddrV6,
+	// Address that the hadshake was performed from
+	init_addr: SocketAddrV6,
+
+	// Address that data was last received from
+	data_addr: SocketAddrV6,
 
 	// 1 packet of recv data yet to be read by openssl
 	input: VecDeque<u8>,
@@ -114,7 +117,7 @@ impl io::Write for Wrapper<'_> {
 
 		let packet = &ind.buffer[..ind.len()];
 
-		send(self.sock, packet, self.addr)
+		send(self.sock, packet, self.data_addr)
 	}
 }
 
@@ -222,7 +225,7 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 	let mut connections: Vec<SslStream<Wrapper<'_>>> = Vec::new();
 	// TODO: Add a second vec sorted by pid to accelerate forwarding
 
-	loop {
+	'packet_loop: loop {
 		let (len, SocketAddr::V6(sender)) = sock.recv_from(&mut buffer)? else {
 			continue;
 		};
@@ -548,269 +551,280 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 						// Hosted DTLS
 						(HOSTED, Some(20..64)) => {
 							// Look for the DTLS context
-							let loc =
-								connections.binary_search_by_key(&sender, |s| s.get_ref().addr);
+							let loc = connections
+								.binary_search_by_key(&sender, |s| s.get_ref().init_addr);
 							let i = loc.unwrap_or_else(|i| i);
-							let context = match loc {
-								// Connection doesn't exist - create it
-								Err(i) if connections.try_reserve(1).is_ok() => {
-									let Ok(mut ssl) = Ssl::new(acceptor.context()) else {
-										continue;
-									};
-									let mut input = VecDeque::new();
-									let Ok(_) = input.try_reserve_exact(dtls_mtu) else {
-										continue;
-									};
-									ssl.set_ex_data(addr_index, sender);
-									ssl.set_accept_state();
-									let Ok(context) = SslStream::new(
-										ssl,
-										Wrapper {
-											addr: sender,
-											input,
-											last_recv: Instant::now(),
-											pid: None,
-											sock: &sock,
-											sctp_data: None,
-										},
-									) else {
-										continue;
-									};
 
-									// Good, insert the new connection
-									connections.insert(i, context);
-									&mut connections[i]
-								}
-								// Connection already exists
-								Ok(i) => &mut connections[i],
-								_ => continue,
-							};
+							// Create a new DTLS context if needed:
+							if loc.is_err() && data[0] == 22 && connections.try_reserve(1).is_ok() {
+								// Create a new DTLS context:
+								let Ok(mut ssl) = Ssl::new(acceptor.context()) else {
+									continue;
+								};
+								let mut input = VecDeque::new();
+								let Ok(_) = input.try_reserve_exact(dtls_mtu) else {
+									continue;
+								};
+								ssl.set_ex_data(addr_index, sender);
+								ssl.set_accept_state();
+								let Ok(context) = SslStream::new(
+									ssl,
+									Wrapper {
+										init_addr: sender,
+										data_addr: sender,
+										input,
+										last_recv: Instant::now(),
+										pid: None,
+										sock: &sock,
+										sctp_data: None,
+									},
+								) else {
+									continue;
+								};
 
-							// Copy the packet into the recv buffer:
-							context.get_mut().input.extend(data.iter().cloned());
+								// Good, insert the new connection
+								connections.insert(i, context);
+							}
 
-							// Read SSL data until it wants more data, then clear the input just to be sure
-							loop {
-								match context.ssl_read(&mut buffer) {
-									// SCTP packets are at least 12 bytes and my code will panic when checking the crc if n < 12
-									Ok(n) if n > 12 => {
-										// Update the pid if needed:
-										if context.get_ref().pid.is_none() {
-											let Some(peer_cert) = context.ssl().peer_certificate()
-											else {
-												connections.remove(i);
-												break;
-											};
-											let Ok(mut fingerprint) =
-												peer_cert.digest(MessageDigest::sha256())
-											else {
-												connections.remove(i);
-												break;
-											};
-											let Some(pid) = to_base62(&mut fingerprint) else {
-												connections.remove(i);
-												break;
-											};
-											println!("Connected: {pid}");
-											context.get_mut().pid = Some(pid);
-										}
+							// Give the packet to every context: Update the address of the first connection that reads data from the packet.
+							for j in 0..connections.len() {
+								let context = &mut connections[j];
 
-										let wrapper = context.get_mut();
-										wrapper.last_recv = Instant::now();
+								// Copy the packet into the recv buffer:
+								context.get_mut().input.extend(data.iter().cloned());
 
-										let recv = Sctp {
-											buffer: &mut buffer,
-										};
-										if recv.sport() != 5000 || recv.dport() != 5000 {
-											continue;
-										}
-										if recv.chksum() != recv.expected_chksum(n) {
-											continue;
-										}
+								// New buffer I guess
+								let mut buffer = [0; 2048];
 
-										// Gather info for a response:
-										let mut sack = None;
-										let mut init_ack = false;
-										let mut cookie_ack = false;
-										// TODO: Heartbeat ack and such
-
-										// Work through the chunks in the SCTP packet and reply with appropriate chunks of our own (We you don't know how to allocate memory like me, this is vastly harder then it sounds *sobs* *screams* *inflicts self torture*):
-										let mut offset = 12;
-										while offset + Chunk::min_len() <= n {
-											let chunk = Chunk {
-												buffer: &mut buffer[offset..],
-											};
-											if chunk.len() < Chunk::min_len() {
-												break;
+								// Read SSL data until it wants more data, then clear the input just to be sure
+								loop {
+									match context.ssl_read(&mut buffer) {
+										// SCTP packets are at least 12 bytes and my code will panic when checking the crc if n < 12
+										Ok(n) if n > 12 => {
+											// Update the pid if needed:
+											if context.get_ref().pid.is_none() {
+												let Some(peer_cert) =
+													context.ssl().peer_certificate()
+												else {
+													connections.remove(i);
+													break;
+												};
+												let Ok(mut fingerprint) =
+													peer_cert.digest(MessageDigest::sha256())
+												else {
+													connections.remove(i);
+													break;
+												};
+												let Some(pid) = to_base62(&mut fingerprint) else {
+													connections.remove(i);
+													break;
+												};
+												println!("Connected: {pid}");
+												context.get_mut().pid = Some(pid);
 											}
 
-											// Check that the chunk fits within the data we've received
-											offset += chunk.len();
-											if offset > n {
-												break;
-											}
+											let wrapper = context.get_mut();
+											wrapper.last_recv = Instant::now();
+											wrapper.data_addr = sender;
 
-											// Handle the chunk:
-											match chunk.typ() {
-												// Data Chunk
-												0 if chunk.len() >= Data::min_len() => {
-													let data = Data { chunk };
-
-													// Update our cumtsn to acknowledge this data (if needed)
-													if sack.is_none_or(|cumtsn| cumtsn < data.tsn())
-													{
-														sack = Some(data.tsn());
-													}
-
-													// Print the data to the logs:
-													let bytes = &data.chunk.buffer
-														[16..data.chunk.length() as usize];
-													if let Ok(s) = std::str::from_utf8(bytes) {
-														println!(
-															"peer data {:?} {} {}: {:?}",
-															wrapper.pid,
-															data.stream(),
-															data.ppid(),
-															s
-														)
-													} else {
-														println!(
-															"peer data {:?} {} {}: {:?}",
-															wrapper.pid,
-															data.stream(),
-															data.ppid(),
-															bytes
-														)
-													}
-												}
-												// Init Chunk
-												1 if chunk.len() >= Init::min_len() => {
-													let tsn = random();
-													let init = Init { chunk };
-													wrapper.sctp_data = Some((init.vtag(), tsn));
-													init_ack = true;
-												}
-												// Selective Acknowledgements
-												3 if chunk.len() >= Sack::min_len() => {
-													let sack = Sack { chunk };
-													let Some((_, ref mut tsn)) = wrapper.sctp_data
-													else {
-														continue;
-													};
-													*tsn = sack.cum_tsn().wrapping_add(1);
-												}
-												// Cookie Chunk
-												10 => {
-													cookie_ack = true;
-												}
-												// Heartbeat request (We just drop them)
-												4 => {}
-												// Print unrecognized chunks
-												_ => {
-													// Unknown Chunk
-													println!(
-														"unknown sctp chunk {} {} {}",
-														chunk.typ(),
-														chunk.flags(),
-														chunk.length()
-													);
-												}
-											}
-										}
-
-										// Construct + write the response packet
-										let Some((rvtag, tsn)) = wrapper.sctp_data else {
-											continue;
-										};
-
-										// Check if we need to acknowledge an init:
-										let mut ret_len = Sctp::min_len();
-										if init_ack {
-											let mut ack = Init {
-												chunk: Chunk {
-													buffer: &mut buffer[ret_len..],
-												},
-											};
-											ack.chunk.set_typ(2);
-											ack.chunk.set_flags(0);
-											ack.chunk.set_length(
-												(Init::min_len() + Param::min_len()) as u16,
-											);
-											ack.set_vtag(random());
-											ack.set_arwnd(6000);
-											ack.set_num_in(u16::MAX);
-											ack.set_num_out(u16::MAX);
-											ack.set_tsn(tsn);
-
-											// Set the Cookie parameter thing (zero length cus fuck that mechanism):
-											let mut cookie = Param {
-												buffer: &mut ack.chunk.buffer[Init::min_len()..],
-											};
-											cookie.set_typ(7);
-											cookie.set_length(Param::min_len() as u16);
-
-											ret_len += ack.chunk.len();
-										}
-
-										// Check if we need to ack a cookie
-										if cookie_ack {
-											let mut ack = Chunk {
-												buffer: &mut buffer[ret_len..],
-											};
-											ack.set_typ(11);
-											ack.set_flags(0);
-											ack.set_length(4);
-
-											ret_len += ack.len();
-										}
-
-										// Check if we need to acknowledge any data messages
-										if let Some(cum_tsn) = sack {
-											let mut ack = Sack {
-												chunk: Chunk {
-													buffer: &mut buffer[ret_len..],
-												},
-											};
-											ack.chunk.set_typ(3);
-											ack.chunk.set_flags(0);
-											ack.chunk.set_length(16);
-											ack.set_cum_tsn(cum_tsn);
-											ack.set_arwnd(6000);
-											ack.set_gaps(0);
-											ack.set_dups(0);
-
-											ret_len += ack.chunk.len();
-										}
-
-										// If we any chunks then send an SCTP packet:
-										if ret_len > 12 {
-											let mut ret = Sctp {
+											let recv = Sctp {
 												buffer: &mut buffer,
 											};
-											ret.set_sport(5000);
-											ret.set_dport(5000);
-											ret.set_vtag(rvtag);
-											ret.set_chksum(ret.expected_chksum(ret_len));
+											if recv.sport() != 5000 || recv.dport() != 5000 {
+												continue;
+											}
+											if recv.chksum() != recv.expected_chksum(n) {
+												continue;
+											}
 
-											let ret = &buffer[..ret_len];
-											let _ = context.ssl_write(ret);
+											// Gather info for a response:
+											let mut sack = None;
+											let mut init_ack = false;
+											let mut cookie_ack = false;
+											// TODO: Heartbeat ack and such
+
+											// Work through the chunks in the SCTP packet and reply with appropriate chunks of our own (We you don't know how to allocate memory like me, this is vastly harder then it sounds *sobs* *screams* *inflicts self torture*):
+											let mut offset = 12;
+											while offset + Chunk::min_len() <= n {
+												let chunk = Chunk {
+													buffer: &mut buffer[offset..],
+												};
+												if chunk.len() < Chunk::min_len() {
+													break;
+												}
+
+												// Check that the chunk fits within the data we've received
+												offset += chunk.len();
+												if offset > n {
+													break;
+												}
+
+												// Handle the chunk:
+												match chunk.typ() {
+													// Data Chunk
+													0 if chunk.len() >= Data::min_len() => {
+														let data = Data { chunk };
+
+														// Update our cumtsn to acknowledge this data (if needed)
+														if sack.is_none_or(|cumtsn| {
+															cumtsn < data.tsn()
+														}) {
+															sack = Some(data.tsn());
+														}
+
+														// Print the data to the logs:
+														let bytes = &data.chunk.buffer
+															[16..data.chunk.length() as usize];
+														if let Ok(s) = std::str::from_utf8(bytes) {
+															println!(
+																"peer data {:?} {} {}: {:?}",
+																wrapper.pid,
+																data.stream(),
+																data.ppid(),
+																s
+															)
+														} else {
+															println!(
+																"peer data {:?} {} {}: {:?}",
+																wrapper.pid,
+																data.stream(),
+																data.ppid(),
+																bytes
+															)
+														}
+													}
+													// Init Chunk
+													1 if chunk.len() >= Init::min_len() => {
+														let tsn = random();
+														let init = Init { chunk };
+														wrapper.sctp_data =
+															Some((init.vtag(), tsn));
+														init_ack = true;
+													}
+													// Selective Acknowledgements
+													3 if chunk.len() >= Sack::min_len() => {
+														let sack = Sack { chunk };
+														let Some((_, ref mut tsn)) =
+															wrapper.sctp_data
+														else {
+															continue;
+														};
+														*tsn = sack.cum_tsn().wrapping_add(1);
+													}
+													// Cookie Chunk
+													10 => {
+														cookie_ack = true;
+													}
+													// Heartbeat request (We just drop them)
+													4 => {}
+													// Print unrecognized chunks
+													_ => {
+														// Unknown Chunk
+														println!(
+															"unknown sctp chunk {} {} {}",
+															chunk.typ(),
+															chunk.flags(),
+															chunk.length()
+														);
+													}
+												}
+											}
+
+											// Construct + write the response packet
+											let Some((rvtag, tsn)) = wrapper.sctp_data else {
+												continue;
+											};
+
+											// Check if we need to acknowledge an init:
+											let mut ret_len = Sctp::min_len();
+											if init_ack {
+												let mut ack = Init {
+													chunk: Chunk {
+														buffer: &mut buffer[ret_len..],
+													},
+												};
+												ack.chunk.set_typ(2);
+												ack.chunk.set_flags(0);
+												ack.chunk.set_length(
+													(Init::min_len() + Param::min_len()) as u16,
+												);
+												ack.set_vtag(random());
+												ack.set_arwnd(6000);
+												ack.set_num_in(u16::MAX);
+												ack.set_num_out(u16::MAX);
+												ack.set_tsn(tsn);
+
+												// Set the Cookie parameter thing (zero length cus fuck that mechanism):
+												let mut cookie = Param {
+													buffer: &mut ack.chunk.buffer
+														[Init::min_len()..],
+												};
+												cookie.set_typ(7);
+												cookie.set_length(Param::min_len() as u16);
+
+												ret_len += ack.chunk.len();
+											}
+
+											// Check if we need to ack a cookie
+											if cookie_ack {
+												let mut ack = Chunk {
+													buffer: &mut buffer[ret_len..],
+												};
+												ack.set_typ(11);
+												ack.set_flags(0);
+												ack.set_length(4);
+
+												ret_len += ack.len();
+											}
+
+											// Check if we need to acknowledge any data messages
+											if let Some(cum_tsn) = sack {
+												let mut ack = Sack {
+													chunk: Chunk {
+														buffer: &mut buffer[ret_len..],
+													},
+												};
+												ack.chunk.set_typ(3);
+												ack.chunk.set_flags(0);
+												ack.chunk.set_length(16);
+												ack.set_cum_tsn(cum_tsn);
+												ack.set_arwnd(6000);
+												ack.set_gaps(0);
+												ack.set_dups(0);
+
+												ret_len += ack.chunk.len();
+											}
+
+											// If we any chunks then send an SCTP packet:
+											if ret_len > 12 {
+												let mut ret = Sctp {
+													buffer: &mut buffer,
+												};
+												ret.set_sport(5000);
+												ret.set_dport(5000);
+												ret.set_vtag(rvtag);
+												ret.set_chksum(ret.expected_chksum(ret_len));
+
+												let ret = &buffer[..ret_len];
+												let _ = context.ssl_write(ret);
+											}
 										}
+										// Handle want read
+										Err(e) if e.code() == ErrorCode::WANT_READ => break,
+										// Handle any dtls close
+										Ok(0) | Err(_) => {
+											println!("Disconnected: {:?}", context.get_ref().pid);
+											connections.remove(j);
+											break;
+										}
+										// Short SCTP packets?
+										_ => {}
 									}
-									// Handle want read
-									Err(e) if e.code() == ErrorCode::WANT_READ => break,
-									// Handle any dtls close
-									Ok(0) | Err(_) => {
-										println!("Disconnected: {:?}", context.get_ref().pid);
-										connections.remove(i);
-										break;
-									}
-									// Short SCTP packets?
-									_ => {}
 								}
 							}
 
 							// Don't send a response packet (the DTLS stream does this internally)
-							continue;
+							continue 'packet_loop;
 						}
 
 						// Hosted (SRTP, etc.)
