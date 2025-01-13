@@ -606,18 +606,18 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 												let Some(peer_cert) =
 													context.ssl().peer_certificate()
 												else {
-													connections.remove(i);
-													break;
+													connections.remove(j);
+													continue 'packet_loop;
 												};
 												let Ok(mut fingerprint) =
 													peer_cert.digest(MessageDigest::sha256())
 												else {
-													connections.remove(i);
-													break;
+													connections.remove(j);
+													continue 'packet_loop;
 												};
 												let Some(pid) = to_base62(&mut fingerprint) else {
-													connections.remove(i);
-													break;
+													connections.remove(j);
+													continue 'packet_loop;
 												};
 												println!("Connected: {pid}");
 												context.get_mut().pid = Some(pid);
@@ -631,10 +631,10 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 												buffer: &mut buffer,
 											};
 											if recv.sport() != 5000 || recv.dport() != 5000 {
-												continue;
+												continue 'packet_loop;
 											}
 											if recv.chksum() != recv.expected_chksum(n) {
-												continue;
+												continue 'packet_loop;
 											}
 
 											// Gather info for a response:
