@@ -815,7 +815,7 @@ fn main() -> Result<std::convert::Infallible, std::io::Error> {
 										Ok(0) | Err(_) => {
 											println!("Disconnected: {:?}", context.get_ref().pid);
 											connections.remove(j);
-											break;
+											continue 'packet_loop;
 										}
 										// Short SCTP packets?
 										_ => {}
